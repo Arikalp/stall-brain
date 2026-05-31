@@ -266,6 +266,7 @@ export default function ForecastPage() {
     })
   }
 
+
   if (!stall || items.length < 1 || !selection?.confirmed) {
     return <Navigate to="/setup" replace />
   }
