@@ -60,6 +60,7 @@ export default function App() {
                 path="/forecast"
                 element={
                   <RequireAuth>
+                    
                     <ForecastPage />
                   </RequireAuth>
                 }
