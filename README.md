@@ -118,6 +118,33 @@ The app is structured across three pages with a clear stepper, ensuring vendors 
 
 Coding Agent used : Copilot with GPT Codex
 
+
+## 🏗️ Architecture
+
+High-level: Client SPA → Signal Engine → Agent → LLM → UI & Storage
+
+
+Key components:
+
+- Frontend: `src/main.jsx`, `src/App.jsx` (routing), `src/pages/*`, `src/components/*`
+- Signal engine: `src/utils/weatherLogic.js` (weather/event → multipliers)
+- Agent: `src/utils/groqAgent.js` (prompt assembly, POST → Groq)
+- Storage: `src/utils/selectionStorage.js` (localStorage)
+- Static data: `src/data/stalls.js`, `src/data/events.js`
+- Env: `VITE_GROQ_API_KEY`
+- Deployment: Vercel (static)
+
+Data contracts:
+
+- `DemandMultiplier` = { weather: number, event: number, weekday: number, combined: number }
+- `ForecastRequest` = { stallType: string, items: [{ name: string, baseQty: number }], multipliers: DemandMultiplier, locale: 'en' | 'hi' }
+
+Integration:
+
+- Open-Meteo: GET /weather → `weatherLogic`
+- Groq LLM: POST /v1/predict ← `groqAgent.js` (JSON payload)
+
+
 ---
 
 ## 🚀 Running Locally
