@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { GripVertical, Plus, X } from 'lucide-react'
+import { signOut } from 'firebase/auth'
 import Header from '../components/Header'
 import StallSelector from '../components/StallSelector'
 import { stalls } from '../data/stalls'
 import { loadSelection, saveSelection } from '../utils/selectionStorage'
+import { auth } from '../utils/firebase'
 
 const steps = [
   { id: 1, label: 'Choose Stall' },
@@ -101,6 +103,11 @@ export default function SetupPage() {
     navigate('/forecast')
   }
 
+  const handleLogout = async () => {
+    await signOut(auth)
+    navigate('/login')
+  }
+
   return (
     <main className="relative min-h-screen">
       <div className="relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col px-4 pb-12 pt-8 sm:px-6 lg:px-10">
@@ -143,16 +150,25 @@ export default function SetupPage() {
           </div>
         </div>
 
-        <div className="mt-6 flex items-center justify-between">
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
           <Link
             to="/"
             className="inline-flex items-center rounded-full border border-[var(--color-border)] bg-transparent px-4 py-2 text-sm font-semibold text-[var(--color-text-secondary)] transition hover:bg-[var(--color-bg-card-hover)]"
           >
             Back
           </Link>
-          <span className="text-xs uppercase tracking-[0.2em] text-[var(--color-text-muted)]">
-            Setup
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs uppercase tracking-[0.2em] text-[var(--color-text-muted)]">
+              Setup
+            </span>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="inline-flex items-center rounded-full border border-[var(--color-border)] bg-transparent px-4 py-2 text-xs font-semibold text-[var(--color-text-secondary)] transition hover:bg-[var(--color-bg-card-hover)]"
+            >
+              Logout
+            </button>
+          </div>
         </div>
 
         <StallSelector
