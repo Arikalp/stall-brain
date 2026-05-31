@@ -26,6 +26,15 @@
   --color-text-primary: #f5f0e8;
   --color-text-secondary: #a89880;
   --color-text-muted: #6b5f52;
+  --nav-offset: 96px;
+}
+
+html {
+  scroll-padding-top: var(--nav-offset);
+}
+
+section[id] {
+  scroll-margin-top: var(--nav-offset);
 }
 
 * {

@@ -75,7 +75,13 @@ export default function HomePage() {
       <div className="relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-10">
         <section className="flex flex-1 flex-col justify-center gap-8">
           <div className="flex flex-wrap items-center gap-4">
-            <div className="home-logo">BB</div>
+            <Link
+              aria-label="Go to home"
+              className="home-logo"
+              to="/home"
+            >
+              BB
+            </Link>
             <div>
               <h1 className="text-4xl font-extrabold tracking-tight text-transparent sm:text-5xl lg:text-6xl bg-gradient-to-r from-[#F59E0B] to-[#FBBF24] bg-clip-text">
                 Bazaar Brain

@@ -37,12 +37,6 @@ export default function Hero() {
               >
                 Get Today&apos;s Forecast
               </Link>
-              <a
-                className="rounded-full border border-white/20 px-6 py-3 text-sm font-semibold text-white/80 transition duration-300 hover:border-white/40 hover:text-white"
-                href="#demo"
-              >
-                Watch Demo
-              </a>
             </div>
           </motion.div>
 
@@ -132,29 +126,6 @@ export default function Hero() {
               </div>
             </div>
 
-            <motion.div
-              animate={{ y: [0, -8, 0] }}
-              className="absolute -left-6 top-24 hidden w-44 rounded-2xl border border-white/10 bg-black/60 p-4 text-xs text-white/70 shadow-xl backdrop-blur-xl sm:block"
-              transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
-            >
-              <p className="text-[0.65rem] uppercase tracking-[0.3em] text-white/40">
-                Demand Spike
-              </p>
-              <p className="mt-2 text-lg font-semibold text-white">+22%</p>
-              <p className="text-white/60">Festival crowd incoming</p>
-            </motion.div>
-
-            <motion.div
-              animate={{ y: [0, 10, 0] }}
-              className="absolute -right-6 bottom-10 hidden w-48 rounded-2xl border border-white/10 bg-black/60 p-4 text-xs text-white/70 shadow-xl backdrop-blur-xl sm:block"
-              transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
-            >
-              <p className="text-[0.65rem] uppercase tracking-[0.3em] text-white/40">
-                AI Suggestion
-              </p>
-              <p className="mt-2 text-lg font-semibold text-white">Prep early</p>
-              <p className="text-white/60">High footfall after 5pm</p>
-            </motion.div>
           </motion.div>
         </div>
       </div>

@@ -13,7 +13,7 @@ import Testimonials from "../components/Testimonials";
 
 export default function LandingPage() {
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#0A0A0A] text-white" id="top">
+    <div className="relative min-h-screen overflow-x-hidden bg-[#0A0A0A] text-white" id="top">
       <div className="pointer-events-none absolute inset-0 opacity-20 [background-image:linear-gradient(rgba(255,255,255,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.06)_1px,transparent_1px)] [background-size:40px_40px]" />
       <div className="pointer-events-none absolute -top-40 left-1/2 h-[32rem] w-[48rem] -translate-x-1/2 rounded-full bg-[radial-gradient(circle_at_center,rgba(251,191,36,0.25),transparent_70%)] blur-3xl" />
       <div className="pointer-events-none absolute top-1/3 right-[-10%] h-80 w-80 rounded-full bg-[radial-gradient(circle_at_center,rgba(251,191,36,0.18),transparent_70%)] blur-3xl" />
