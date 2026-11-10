@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, Navigate, useLocation } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { X } from 'lucide-react'
 import Header from '../components/Header'
 import SignalPanel from '../components/SignalPanel'
@@ -96,14 +96,19 @@ function getErrorDetails(code) {
 }
 
 export default function ForecastPage() {
-  const location = useLocation()
-  const [profile, setProfile] = useState(() => loadProfile())
+  const [profile] = useState(() => loadProfile())
   const dateInfo = useMemo(() => getTodayInfo(), [])
-  const [sessionIngredients, setSessionIngredients] = useState([])
-  const [inventory, setInventory] = useState({})
+  const [initialSession] = useState(() => {
+    if (!profile) return { sessionIngredients: [], inventory: {} }
+    return loadForecastSession() ?? createSessionFromProfile(profile)
+  })
+  const [sessionIngredients, setSessionIngredients] = useState(
+    initialSession.sessionIngredients,
+  )
+  const [inventory, setInventory] = useState(initialSession.inventory)
   const [newItem, setNewItem] = useState('')
   const [itemError, setItemError] = useState('')
-  const [sessionReady, setSessionReady] = useState(false)
+  const sessionReady = Boolean(profile)
 
   const stall = useMemo(() => {
     if (!profile) return null
@@ -128,7 +133,7 @@ export default function ForecastPage() {
   const [showHindi, setShowHindi] = useState(false)
   const [errorState, setErrorState] = useState(null)
   const [feedback, setFeedback] = useState(null)
-  const [history, setHistory] = useState([])
+  const [history, setHistory] = useState(() => loadHistory())
   const [currentHistoryId, setCurrentHistoryId] = useState(null)
   const [historyOpen, setHistoryOpen] = useState(false)
 
@@ -153,32 +158,9 @@ export default function ForecastPage() {
     weeklyMultiplier
 
   useEffect(() => {
-    setHistory(loadHistory())
-  }, [])
-
-  useEffect(() => {
-    setProfile(loadProfile())
-  }, [location.key])
-
-  useEffect(() => {
-    if (!profile) return
-    const storedSession = loadForecastSession()
-    const nextSession = storedSession ?? createSessionFromProfile(profile)
-    setSessionIngredients(nextSession.sessionIngredients)
-    setInventory(nextSession.inventory)
-    setSessionReady(true)
-  }, [profile])
-
-  useEffect(() => {
     if (!sessionReady) return
     saveForecastSession({ sessionIngredients, inventory })
   }, [sessionIngredients, inventory, sessionReady])
-
-  useEffect(() => {
-    if (sessionIngredients.length > 0 && itemError) {
-      setItemError('')
-    }
-  }, [sessionIngredients, itemError])
 
   useEffect(() => {
     if (!stall) return
@@ -269,6 +251,7 @@ export default function ForecastPage() {
       [trimmed]: prev[trimmed] ?? { quantity: 0, unit: INVENTORY_UNITS[0] },
     }))
     setNewItem('')
+    setItemError('')
   }
 
   const handleInventoryChange = (itemName, field, value) => {

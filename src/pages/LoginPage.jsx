@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   GoogleAuthProvider,
@@ -9,20 +9,25 @@ import {
 } from "firebase/auth";
 import { auth } from "../utils/firebase";
 
+function getPostAuthRoute(user) {
+  if (!user) return "/login";
+  const { creationTime, lastSignInTime } = user.metadata ?? {};
+  const isFirstLogin =
+    Boolean(creationTime && lastSignInTime) && creationTime === lastSignInTime;
+  return isFirstLogin ? "/profile" : "/forecast";
+}
+
 export default function LoginPage() {
   const navigate = useNavigate();
+  const navigateRef = useRef(navigate);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  const getPostAuthRoute = (user) => {
-    if (!user) return "/login";
-    const { creationTime, lastSignInTime } = user.metadata ?? {};
-    const isFirstLogin =
-      Boolean(creationTime && lastSignInTime) && creationTime === lastSignInTime;
-    return isFirstLogin ? "/profile" : "/forecast";
-  };
+  useEffect(() => {
+    navigateRef.current = navigate;
+  }, [navigate]);
 
   useEffect(() => {
     let active = true;
@@ -31,7 +36,7 @@ export default function LoginPage() {
       .then((result) => {
         if (!active) return;
         if (result?.user) {
-          navigate(getPostAuthRoute(result.user));
+          navigateRef.current(getPostAuthRoute(result.user));
         }
       })
       .catch((authError) => {
@@ -46,7 +51,7 @@ export default function LoginPage() {
     return () => {
       active = false;
     };
-  }, [navigate]);
+  }, []);
 
   const handleSubmit = async (event) => {
     event.preventDefault();

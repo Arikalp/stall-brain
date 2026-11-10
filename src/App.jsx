@@ -10,6 +10,15 @@ import ForecastPage from './pages/ForecastPage'
 import LoginPage from './pages/LoginPage'
 import SignupPage from './pages/SignupPage'
 
+// Defined outside App so its component identity stays stable across renders.
+// Defining it inside App remounts the whole protected page on every render,
+// which resets page state and can trigger effect/update loops.
+function RequireAuth({ authReady, isLoggedIn, children }) {
+  if (!authReady) return null
+  if (!isLoggedIn) return <Navigate to="/login" replace />
+  return children
+}
+
 export default function App() {
   const location = useLocation()
   const [authReady, setAuthReady] = useState(false)
@@ -23,12 +32,6 @@ export default function App() {
 
     return () => unsubscribe()
   }, [])
-
-  const RequireAuth = ({ children }) => {
-    if (!authReady) return null
-    if (!isLoggedIn) return <Navigate to="/login" replace />
-    return children
-  }
 
   return (
     <div className="relative min-h-screen bg-(--color-bg-base) text-(--color-text-primary)">
@@ -51,7 +54,7 @@ export default function App() {
               <Route
                 path="/setup"
                 element={
-                  <RequireAuth>
+                  <RequireAuth authReady={authReady} isLoggedIn={isLoggedIn}>
                     <Navigate to="/profile" replace />
                   </RequireAuth>
                 }
@@ -59,7 +62,7 @@ export default function App() {
               <Route
                 path="/profile"
                 element={
-                  <RequireAuth>
+                  <RequireAuth authReady={authReady} isLoggedIn={isLoggedIn}>
                     <ProfilePage />
                   </RequireAuth>
                 }
@@ -67,8 +70,7 @@ export default function App() {
               <Route
                 path="/forecast"
                 element={
-                  <RequireAuth>
-                    
+                  <RequireAuth authReady={authReady} isLoggedIn={isLoggedIn}>
                     <ForecastPage />
                   </RequireAuth>
                 }
