@@ -1,0 +1,25 @@
+{
+  "name": "bazaar-brain-backend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Express backend for Bazaar Brain: authenticated forecast API hiding the Groq key.",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@langchain/groq": "^1.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.2.1",
+    "firebase-admin": "^13.6.0",
+    "helmet": "^8.1.0",
+    "zod": "^4.1.13"
+  }
+}

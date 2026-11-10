@@ -30,21 +30,42 @@ const HISTORY_KEY = 'bazaarBrainHistory'
 const LOADING_DURATION = 600 * 5 + 200
 
 const ERROR_COPY = {
-  MISSING_API_KEY: {
-    title: 'Connect your Groq key',
-    message:
-      'Add VITE_GROQ_API_KEY to your environment file and restart the dev server.',
-    action: 'I added the key, retry',
-  },
-  GROQ_REQUEST_FAILED: {
-    title: 'Groq is unavailable',
-    message: 'We could not reach the Groq API. Try again in a moment.',
+  AUTH_REQUIRED: {
+    title: 'Sign in required',
+    message: 'Please log in again so we can generate your forecast.',
     action: 'Retry forecast',
   },
-  GROQ_PARSE_FAILED: {
+  RATE_LIMITED: {
+    title: 'Too many requests',
+    message:
+      'You have requested a lot of forecasts in a short time. Please wait a few minutes and try again.',
+    action: 'Retry forecast',
+  },
+  VALIDATION_FAILED: {
+    title: 'Something was off with your request',
+    message: 'We could not process this forecast request. Try again.',
+    action: 'Retry forecast',
+  },
+  FORECAST_UNAVAILABLE: {
+    title: 'Forecast service unavailable',
+    message: 'The forecast service is not responding. Try again in a moment.',
+    action: 'Retry forecast',
+  },
+  FORECAST_INVALID: {
     title: 'Forecast response was unclear',
     message: 'The AI response did not parse cleanly. Try regenerating.',
     action: 'Regenerate forecast',
+  },
+  NETWORK_ERROR: {
+    title: "Can't reach the server",
+    message:
+      'The forecast backend is not reachable. Check your connection (or start the backend server) and retry.',
+    action: 'Retry forecast',
+  },
+  REQUEST_FAILED: {
+    title: 'Something went wrong',
+    message: 'Please retry the forecast when you are ready.',
+    action: 'Retry forecast',
   },
   UNKNOWN: {
     title: 'Something went wrong',

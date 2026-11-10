@@ -120,7 +120,7 @@ export default function HomePage() {
               },
               {
                 title: 'Get AI forecast for the day',
-                detail: 'Demand signals + Groq reasoning in one view.',
+                detail: 'Demand signals + AI reasoning in one view.',
               },
             ].map((step) => (
               <div
