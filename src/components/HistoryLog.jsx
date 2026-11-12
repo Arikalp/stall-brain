@@ -82,6 +82,11 @@ export default function HistoryLog({ history, collapsed, onToggle }) {
                     >
                       {badge.label}
                     </span>
+                    {entry.outcomeSummary ? (
+                      <span className="rounded-full border border-[var(--color-success)] bg-[rgba(74,222,128,0.12)] px-3 py-1 text-[var(--color-success)]">
+                        {entry.outcomeSummary}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
               )

@@ -10,6 +10,7 @@ import {
   normalizeIngredients,
   saveProfile,
 } from '../utils/profileStorage'
+import { fetchServerProfile, pushServerProfile } from '../utils/profileApi'
 import { clearForecastSession } from '../utils/forecastSessionStore'
 import { auth } from '../utils/firebase'
 
@@ -35,6 +36,27 @@ export default function ProfilePage() {
     const timer = setTimeout(() => setToast(''), 2800)
     return () => clearTimeout(timer)
   }, [toast])
+
+  // The server is the source of truth (T2.2): if this browser has no cached
+  // profile (cleared storage, new device), restore it from Firestore.
+  useEffect(() => {
+    if (storedProfile) return
+    let active = true
+    fetchServerProfile()
+      .then((profile) => {
+        if (!active || !profile) return
+        const cached = saveProfile(profile)
+        if (!cached) return
+        setSelectedStallId(cached.stallType)
+        setItems(cached.ingredients)
+      })
+      .catch(() => {
+        // Offline or backend down: the vendor can still fill the form manually.
+      })
+    return () => {
+      active = false
+    }
+  }, [storedProfile])
 
   const handleSelectStall = (stallId) => {
     const stall = stalls.find((entry) => entry.id === stallId)
@@ -95,6 +117,13 @@ export default function ProfilePage() {
       setError('Unable to save your profile. Please try again.')
       return
     }
+
+    // Sync to Firestore in the background (T2.2): the vendor never waits on
+    // the network; local cache already has everything the app needs.
+    pushServerProfile(saved).catch(() => {
+      // Ignore: the profile still works from the cache and will sync on the
+      // next save.
+    })
 
     setItems(saved.ingredients)
     setError('')

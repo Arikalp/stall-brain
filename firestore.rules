@@ -1,0 +1,40 @@
+rules_version = '2';
+
+// Bazaar Brain Firestore security rules (T2.2).
+//
+// The backend reads/writes vendor data through the Firebase Admin SDK, which
+// bypasses these rules. The rules exist to lock down DIRECT client access:
+// browsers may only ever touch their own vendor document tree, and only while
+// signed in. The frontend does not use the Firestore SDK today - these rules
+// are defense in depth if that ever changes.
+//
+// Deploy: firebase deploy --only firestore:rules --project <project-id>
+// (requires the Firestore native-mode database to exist).
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /vendors/{vendorId} {
+      // The owner can read/write their own vendor doc (profile, biasFactors).
+      allow read, write: if isOwner(vendorId);
+
+      // Subcollections: runs/{runId}, logs/{date}, and anything future.
+      match /{subdocument=**} {
+        allow read, write: if isOwner(vendorId);
+      }
+    }
+
+    // Checkpointer collections are backend-only (Admin SDK), never client.
+    match /checkpoints/{document=**} {
+      allow read, write: if false;
+    }
+    match /checkpoint_writes/{document=**} {
+      allow read, write: if false;
+    }
+
+    // Everything else: deny by default (no other match blocks exist).
+
+    function isOwner(vendorId) {
+      return request.auth != null && request.auth.uid == vendorId;
+    }
+  }
+}

@@ -6,8 +6,16 @@ import {
   FirestoreCheckpointSaver,
   InMemoryFirestore,
 } from '../src/store/firestoreCheckpointer.js'
-import { getVendorContext, saveRun, setDb } from '../src/store/firestore.js'
-
+import {
+  getRecentLogs,
+  getRecentRuns,
+  getVendorContext,
+  getVendorProfile,
+  saveDailyLog,
+  saveRun,
+  saveVendorProfile,
+  setDb,
+} from '../src/store/firestore.js'
 describe('FirestoreCheckpointSaver (T1.9)', () => {
   const fakeDb = new FakeDbAdapter()
 
@@ -194,5 +202,94 @@ describe('store/firestore (vendor context + runs)', () => {
 
     const missing = await saveRun(null, { runId: 'r3' })
     expect(missing.saved).toBe(false)
+  })
+})
+
+describe('store/firestore (T2.2: profile, logs, runs)', () => {
+  it('saveDailyLog upserts and getRecentLogs reads newest first', async () => {
+    const fakeDb = new InMemoryFirestore()
+
+    const ok = await saveDailyLog('v1', { date: '2026-11-12', items: [{ item: 'aloo', outcome: 'sold_out' }] }, { db: fakeDb })
+    expect(ok.saved).toBe(true)
+    await saveDailyLog('v1', { date: '2026-11-13', items: [] }, { db: fakeDb })
+
+    // Overwrite (upsert) the earlier date.
+    await saveDailyLog('v1', { date: '2026-11-12', items: [{ item: 'puri', outcome: 'wasted' }] }, { db: fakeDb })
+
+    const logs = await getRecentLogs('v1', 10, { db: fakeDb })
+    expect(logs.map((log) => log.date)).toEqual(['2026-11-13', '2026-11-12'])
+    expect(logs[1].items[0].outcome).toBe('wasted')
+
+    const missing = await saveDailyLog(null, { date: 'x' })
+    expect(missing.saved).toBe(false)
+  })
+
+  it('getRecentLogs degrades to [] on failure', async () => {
+    const logs = await getRecentLogs('v1', 10, {
+      db: {
+        collection: () => {
+          throw new Error('offline')
+        },
+      },
+    })
+    expect(logs).toEqual([])
+  })
+
+  it('saveVendorProfile merges into the vendor doc (keeps biasFactors)', async () => {
+    const fakeDb = new InMemoryFirestore()
+    // Seed biasFactors the way loadContext reads them.
+    await fakeDb.collection('vendors').doc('v1').set({ biasFactors: { aloo: 0.8 } })
+
+    const ok = await saveVendorProfile(
+      'v1',
+      { stallType: 'chaat', stallLabel: 'Chaat Stall', stallEmoji: '🥗', ingredients: ['aloo'] },
+      { db: fakeDb },
+    )
+    expect(ok.saved).toBe(true)
+
+    const snap = await fakeDb.collection('vendors').doc('v1').get()
+    expect(snap.data().biasFactors.aloo).toBe(0.8) // not clobbered by the profile save
+    expect(snap.data().profile.stallType).toBe('chaat')
+  })
+
+  it('getVendorProfile returns null for missing vendor and [] on failure paths', async () => {
+    const fakeDb = new InMemoryFirestore()
+    const none = await getVendorProfile('ghost', { db: fakeDb })
+    expect(none.profile).toBeNull()
+
+    const broken = await getVendorProfile('v1', {
+      db: {
+        collection: () => {
+          throw new Error('offline')
+        },
+      },
+    })
+    expect(broken.profile).toBeNull()
+    expect(broken.error).toContain('offline')
+  })
+
+  it('getRecentRuns returns saved runs newest first', async () => {
+    const db = {
+      collection: (name) => ({
+        doc: (id) => ({
+          collection: (sub) => ({
+            orderBy: () => ({
+              limit: () => ({
+                get: async () => ({
+                  docs: [
+                    { id: 'r2', data: () => ({ date: '2026-11-13', approvedPlan: { summary: 'newer' } }) },
+                    { id: 'r1', data: () => ({ date: '2026-11-12', approvedPlan: { summary: 'older' } }) },
+                  ],
+                }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    }
+
+    const runs = await getRecentRuns('v1', 5, { db })
+    expect(runs.map((run) => run.runId)).toEqual(['r2', 'r1'])
+    expect(runs[0].approvedPlan.summary).toBe('newer')
   })
 })

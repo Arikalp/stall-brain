@@ -17,6 +17,8 @@ export async function save(state, deps = {}) {
     : await saveRun(state.vendorId, {
         runId: state.runId,
         date: state.date,
+        stallType: state.profile?.stallType ?? null,
+        stallLabel: state.profile?.stallLabel ?? null,
         plan,
         approvedPlan: state.approvedPlan ?? null,
         edits: state.approvedEdits ?? [],

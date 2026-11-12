@@ -279,12 +279,17 @@ export class InMemoryFirestore {
       docs: entries.map(([id, data]) => ({ id, data: () => data })),
     })
 
+    const compare = (field, a, b) => {
+      const av = a[1][field]
+      const bv = b[1][field]
+      if (typeof av === 'number' && typeof bv === 'number') return av - bv
+      return String(av).localeCompare(String(bv))
+    }
+
     const chainFrom = (entries) => ({
       orderBy: (field, direction = 'asc') => {
         const sorted = [...entries].sort((a, b) =>
-          direction === 'desc'
-            ? b[1][field] - a[1][field]
-            : a[1][field] - b[1][field],
+          direction === 'desc' ? compare(field, b, a) : compare(field, a, b),
         )
         return chainFrom(sorted)
       },
@@ -297,8 +302,14 @@ export class InMemoryFirestore {
     const colPath = pathParts.join('/')
     return {
       doc: (id) => ({
-        set: async (data) => {
-          docs.set(id, { ...data })
+        // Firestore set semantics: with { merge: true } existing fields survive.
+        set: async (data, options = {}) => {
+          docs.set(
+            id,
+            options.merge && docs.has(id)
+              ? { ...docs.get(id), ...data }
+              : { ...data },
+          )
         },
         get: async () => ({
           exists: docs.has(id),

@@ -115,6 +115,14 @@ export const DailyLogSchema = z.object({
   createdAt: z.string().optional(),
 })
 
+/** Vendor profile persisted server-side (T2.2): vendors/{uid}.profile. */
+export const VendorProfileSchema = z.object({
+  stallType: z.string().min(1),
+  stallLabel: z.string().min(1),
+  stallEmoji: z.string().min(1),
+  ingredients: z.array(z.string().min(1)).default([]),
+})
+
 /** Validator node output (the code-based critic). */
 export const ValidationResultSchema = z.object({
   valid: z.boolean(),

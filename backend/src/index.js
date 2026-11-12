@@ -5,6 +5,8 @@ import cors from 'cors'
 import { config } from './config.js'
 import { initFirebaseAdmin } from './middleware/auth.js'
 import { forecastRouter } from './routes/forecast.js'
+import { logsRouter } from './routes/logs.js'
+import { profileRouter } from './routes/profile.js'
 
 export function createApp() {
   const app = express()
@@ -33,6 +35,8 @@ export function createApp() {
   })
 
   app.use('/api', forecastRouter)
+  app.use('/api', logsRouter)
+  app.use('/api', profileRouter)
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'NOT_FOUND', message: 'Unknown endpoint.' })

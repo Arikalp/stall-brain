@@ -6,6 +6,7 @@ import SignalPanel from '../components/SignalPanel'
 import ForecastOutput from '../components/ForecastOutput'
 import FeedbackBar from '../components/FeedbackBar'
 import HistoryLog from '../components/HistoryLog'
+import EndOfDayLog from '../components/EndOfDayLog'
 import LoadingState from '../components/LoadingState'
 import { getEventsForDate, getWeeklyMultiplier } from '../data/events'
 import { getWeatherSignal } from '../utils/weatherLogic'
@@ -13,6 +14,7 @@ import { requestForecastStream, resumeForecast } from '../utils/groqAgent'
 import PlanEditor from '../components/PlanEditor'
 import { getTodayInfo } from '../utils/dateTime'
 import { loadProfile } from '../utils/profileStorage'
+import { fetchRecentRuns } from '../utils/profileApi'
 import {
   createSessionFromProfile,
   INVENTORY_UNITS,
@@ -161,6 +163,7 @@ export default function ForecastPage() {
   const [history, setHistory] = useState(() => loadHistory())
   const [currentHistoryId, setCurrentHistoryId] = useState(null)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [logError, setLogError] = useState(null)
 
   const eventsToday = useMemo(() => {
     return getEventsForDate(dateInfo.dateString)
@@ -357,6 +360,7 @@ export default function ForecastPage() {
     setFeedback(null)
     setPendingApproval(null)
     setLiveSteps([])
+    setLogError(null)
 
     const inventorySnapshot = buildInventorySnapshot(
       sessionIngredients,
@@ -413,6 +417,21 @@ export default function ForecastPage() {
     setHistory((prev) => {
       const next = prev.map((item) =>
         item.id === currentHistoryId ? { ...item, feedback: value } : item,
+      )
+      saveHistory(next)
+      return next
+    })
+  }
+
+  /** The day's report was saved (T2.1): tag the history entry. */
+  const handleDayLogged = () => {
+    setLogError(null)
+    if (!currentHistoryId) return
+    setHistory((prev) => {
+      const next = prev.map((item) =>
+        item.id === currentHistoryId
+          ? { ...item, outcomeSummary: 'Day logged' }
+          : item,
       )
       saveHistory(next)
       return next
@@ -658,6 +677,26 @@ export default function ForecastPage() {
 
         {phase === 'forecastReady' ? (
           <FeedbackBar feedback={feedback} onFeedback={handleFeedback} />
+        ) : null}
+
+        {phase === 'forecastReady' && forecast ? (
+          <>
+            {logError ? (
+              <p className="mt-6 text-sm text-[var(--color-danger)]">
+                Could not save today&apos;s report - check your connection and
+                try again.
+              </p>
+            ) : null}
+            <EndOfDayLog
+              items={[
+                ...(forecast.procurementList ?? []).map((item) => item.item),
+                ...(forecast.sufficientStockItems ?? []),
+              ].filter((item, index, all) => all.indexOf(item) === index)}
+              date={dateInfo.dateString}
+              onLogged={handleDayLogged}
+              onError={() => setLogError('SAVE_FAILED')}
+            />
+          </>
         ) : null}
 
         {showError ? (
