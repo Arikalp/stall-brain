@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import { Command } from '@langchain/langgraph'
 import { getForecastGraph } from '../src/graph/build.js'
 
 // Simulate a network failure for Open-Meteo only: every other fetch (none in
@@ -22,9 +23,16 @@ const request = {
 }
 
 const graph = getForecastGraph()
+const threadId = `smoke-degraded-${Date.now()}`
+const pausedState = await graph.invoke(
+  { vendorId: 'smoke-test', runId: threadId, request },
+  { configurable: { thread_id: threadId } },
+)
+
+// Auto-approve so the run completes and the degraded plan is printed.
 const finalState = await graph.invoke(
-  { vendorId: 'smoke-test', runId: 'smoke-degraded', request },
-  { configurable: { thread_id: 'smoke-degraded' } },
+  new Command({ resume: { approved: true } }),
+  { configurable: { thread_id: threadId } },
 )
 
 console.log('TRACE:')

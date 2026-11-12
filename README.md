@@ -118,10 +118,10 @@ Your stall profile saves permanently. Each forecast lets you make temporary adju
 | Styling | Tailwind CSS v4 + CSS Variables |
 | Auth | Firebase (signup / login / session) |
 | Routing | React Router v6 |
-| AI / LLM | Groq API — `llama-3.3-70b-versatile` |
+| AI / LLM | Groq API — `openai/gpt-oss-120b`, called server-side via LangGraph.js |
 | Weather | Open-Meteo API (free, no key required) |
 | Icons | Lucide React |
-| Storage | Firebase (auth) + localStorage (forecast history, session) |
+| Storage | Firebase (auth + Firestore vendor data) + localStorage (forecast history, session) |
 | Deployment | Vercel |
 
 Coding Agent used : Copilot with GPT Codex
@@ -146,6 +146,7 @@ src/
 		InventoryInput.jsx
 		SignalPanel.jsx
 		LoadingState.jsx
+		PlanEditor.jsx
 		ForecastOutput.jsx
 		FeedbackBar.jsx
 		HistoryLog.jsx
@@ -156,6 +157,17 @@ src/
 	data/
 		stalls.js
 		events.js
+
+backend/
+	src/
+		index.js               # Express bootstrap (CORS, helmet, rate limit)
+		routes/forecast.js     # /api/forecast, /resume, /stream (SSE)
+		graph/                 # LangGraph.js agent (see diagram below)
+		tools/                 # Live signal tools (weather, events, cricket, prices)
+		store/                 # Firestore vendor context + checkpoint saver
+		schemas.js             # Zod contracts (every LLM output is validated)
+	tests/                     # Vitest suites (109 tests)
+	scripts/                   # Live smoke tests (smoke-graph, smoke-degraded)
 ```
 
 Data contracts:
@@ -205,7 +217,11 @@ ForecastResult = {
 
 ### Agent graph (LangGraph.js)
 
-The backend runs the forecast as a LangGraph.js agent (`backend/src/graph/`). The `validate → planProcurement` dashed edge is the self-correction loop: a code-based validator rejects bad plans and sends them back to the planner (max 3 retries). Generated with `graph.getGraph().drawMermaid()` (regenerate: `node backend/scripts/dump-mermaid.mjs`).
+The backend runs the forecast as a LangGraph.js agent (`backend/src/graph/`). Two dashed edges:
+- `validate → planProcurement` is the **self-correction loop**: a code-based validator rejects bad plans and sends them back to the planner (max 3 retries, then falls back to the deterministic draft).
+- `humanApproval → planProcurement` is the **vendor rejection loop**: the vendor can reject a plan up to 3 times to have it regenerated; `humanApproval` is an interrupt — the graph pauses there until the vendor approves (optionally with edited quantities) via `POST /api/forecast/resume`.
+
+Generated with `graph.getGraph().drawMermaid()` (regenerate: `node backend/scripts/dump-mermaid.mjs`).
 
 ```mermaid
 %%{init: {'flowchart': {'curve': 'linear'}}}%%
@@ -217,15 +233,20 @@ graph TD;
 	planProcurement(planProcurement)
 	validate(validate)
 	explain(explain)
+	humanApproval(humanApproval)
+	save(save)
 	__end__([<p>__end__</p>]):::last
 	__start__ --> loadContext;
-	explain --> __end__;
+	explain --> humanApproval;
 	forecastDemand --> planProcurement;
 	gatherSignals --> forecastDemand;
 	loadContext --> gatherSignals;
 	planProcurement --> validate;
+	save --> __end__;
 	validate -.-> planProcurement;
 	validate -.-> explain;
+	humanApproval -.-> save;
+	humanApproval -.-> planProcurement;
 	classDef default fill:#f2f0ff,line-height:1.2;
 	classDef first fill-opacity:0;
 	classDef last fill:#bfb6fc;
@@ -242,18 +263,19 @@ git clone https://github.com/placeholder/bazaar-brain.git
 cd bazaar-brain
 ```
 
-**2. Add your Groq API key**
+**2. Add your Groq API key (backend only)**
 
-Create a `.env` file at the project root:
+The LLM key lives only on the server — the browser never sees it. Create a `.env` file in `backend/` (see `backend/.env.example`):
 ```
-VITE_GROQ_API_KEY=your_groq_api_key_here
+GROQ_API_KEY=your_groq_api_key_here
 ```
 Get a free key at [console.groq.com](https://console.groq.com/) — no credit card needed.
 
 **3. Install and run**
 ```bash
 npm install
-npm run dev
+cd backend && npm install && npm run dev   # Express API on :3001
+cd .. && npm run dev                       # Vite frontend on :5173
 ```
 
 Open [http://localhost:5173](http://localhost:5173).

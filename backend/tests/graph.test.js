@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { buildForecastGraph, MAX_PLAN_RETRIES, routeAfterValidate } from '../src/graph/build.js'
+import { buildForecastGraph, MAX_PLAN_RETRIES, routeAfterApproval, routeAfterValidate } from '../src/graph/build.js'
 import { loadContext } from '../src/graph/nodes/loadContext.js'
 import { forecastDemand } from '../src/graph/nodes/forecast.js'
+import { explain as realExplain } from '../src/graph/nodes/explain.js'
 
 describe('routeAfterValidate', () => {
   it('retries the planner when errors remain', () => {
@@ -22,6 +23,24 @@ describe('routeAfterValidate', () => {
   it('continues to explain when the plan is valid', () => {
     expect(routeAfterValidate({ validationErrors: [], retryCount: 0 })).toBe(
       'explain',
+    )
+  })
+})
+
+describe('routeAfterApproval', () => {
+  it('saves an approved plan', () => {
+    expect(routeAfterApproval({ approvedPlan: { summary: 'x' } })).toBe('save')
+  })
+
+  it('regenerates after a rejection', () => {
+    expect(routeAfterApproval({ approvedPlan: null, approvalRejections: 1 })).toBe(
+      'planProcurement',
+    )
+  })
+
+  it('saves anyway after the max rejections', () => {
+    expect(routeAfterApproval({ approvedPlan: null, approvalRejections: 3 })).toBe(
+      'save',
     )
   })
 })
@@ -85,15 +104,38 @@ describe('forecast graph skeleton', () => {
     }
   }
 
+  // The real explain node in deterministic-fallback mode (no LLM key in tests).
+  const explain = async (state) => realExplain(state, { skipLlm: true })
+
+  // The real loadContext reads Firestore vendor history; fake it so tests stay
+  // hermetic (no Firebase Admin init / network).
+  const fakeLoadContext = async (state) => ({
+    profile: { stallType: 'chaat', stallLabel: 'Chaat Stall' },
+    sessionIngredients: state.request.items,
+    inventory: state.request.inventory,
+    date: '2026-11-12',
+    history: [],
+    bias: {},
+    trace: [`Loaded context for ${state.request.stall.name} (${state.request.items.length} items)`],
+  })
+
   function makeGraph(validator) {
     return buildForecastGraph({
+      loadContext: fakeLoadContext,
       planProcurement: async (state) => ({
         plan: { ...fakePlan, confidenceReason: `retries=${state.retryCount ?? 0}` },
         trace: ['fake planner'],
       }),
       validate: validator,
-      explain: async () => ({ trace: ['fake explain'] }),
+      explain,
       gatherSignals: fakeGatherSignals,
+      // Auto-approve + skip persistence so skeleton tests run to completion.
+      humanApproval: async (state) => ({
+        approvedPlan: state.plan,
+        approvedEdits: [],
+        trace: ['fake approval'],
+      }),
+      save: async () => ({ trace: ['fake save'] }),
     })
   }
 
@@ -112,7 +154,8 @@ describe('forecast graph skeleton', () => {
     expect(finalState.sessionIngredients).toEqual(['aloo'])
     expect(finalState.multiplier.combined).toBe(1.2)
     expect(finalState.signals.weather.label).toContain('Clear')
-    expect(finalState.plan.summary).toBe('test')
+    expect(finalState.plan.expectedCustomers).toBe(40) // the fake planner's plan flowed through
+    expect(finalState.plan.confidenceLevel).toBe('Low')
     // trace order proves node order: loadContext -> gatherSignals -> forecast -> plan -> validate -> explain
     const trace = finalState.trace.join(' | ')
     expect(trace.indexOf('Loaded context')).toBeLessThan(
@@ -222,14 +265,28 @@ describe('forecast graph skeleton', () => {
       }
     }
 
-    const graph = buildForecastGraph({ planProcurement: wrongThenRight, gatherSignals: fakeGatherSignals })
+    const graph = buildForecastGraph({
+      loadContext: fakeLoadContext,
+      planProcurement: wrongThenRight,
+      gatherSignals: fakeGatherSignals,
+      explain,
+      humanApproval: async (state) => ({
+        approvedPlan: state.plan,
+        approvedEdits: [],
+        trace: ['fake approval'],
+      }),
+      save: async () => ({ trace: ['fake save'] }),
+    })
     const finalState = await graph.invoke(
       { vendorId: 'v', runId: 'run-3', request },
       { configurable: { thread_id: 'run-3' } },
     )
 
     expect(calls).toBe(2)
-    expect(finalState.plan.summary).toBe('good')
+    // The real explain node (fallback mode) rebuilds the summary text from the
+    // validated plan, so assert on the plan's actual numbers + planner fields.
+    expect(finalState.plan.summary).toContain('10.4 kg aloo')
+    expect(finalState.plan.expectedCustomers).toBe(180)
     expect(finalState.validationErrors).toEqual([])
     expect(finalState.trace.join(' | ')).toContain('retrying planner (1/3)')
   })
@@ -250,7 +307,18 @@ describe('forecast graph skeleton', () => {
       trace: ['wrong'],
     })
 
-    const graph = buildForecastGraph({ planProcurement: alwaysWrong, gatherSignals: fakeGatherSignals })
+    const graph = buildForecastGraph({
+      loadContext: fakeLoadContext,
+      planProcurement: alwaysWrong,
+      gatherSignals: fakeGatherSignals,
+      explain,
+      humanApproval: async (state) => ({
+        approvedPlan: state.plan,
+        approvedEdits: [],
+        trace: ['fake approval'],
+      }),
+      save: async () => ({ trace: ['fake save'] }),
+    })
     const finalState = await graph.invoke(
       { vendorId: 'v', runId: 'run-4', request },
       { configurable: { thread_id: 'run-4' } },

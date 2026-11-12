@@ -21,6 +21,10 @@ const envSchema = z.object({
   // Without them the corresponding tools degrade gracefully to curated/mock data.
   TAVILY_API_KEY: z.string().optional(),
   DATA_GOV_IN_API_KEY: z.string().optional(),
+  // Checkpointer: 'memory' (dev, non-persistent) or 'firestore' (prod, runs
+  // survive restarts so pending approvals are not lost). Firestore mode needs
+  // the Firebase Admin credentials above.
+  CHECKPOINT_BACKEND: z.enum(['memory', 'firestore']).default('memory'),
 })
 
 const parsed = envSchema.safeParse(process.env)
@@ -55,4 +59,5 @@ export const config = Object.freeze({
   firebaseServiceAccountPath: parsed.data.FIREBASE_SERVICE_ACCOUNT_PATH,
   tavilyApiKey: parsed.data.TAVILY_API_KEY,
   dataGovInApiKey: parsed.data.DATA_GOV_IN_API_KEY,
+  checkpointBackend: parsed.data.CHECKPOINT_BACKEND,
 })

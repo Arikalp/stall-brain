@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import { X } from 'lucide-react'
 import Header from '../components/Header'
@@ -9,7 +9,8 @@ import HistoryLog from '../components/HistoryLog'
 import LoadingState from '../components/LoadingState'
 import { getEventsForDate, getWeeklyMultiplier } from '../data/events'
 import { getWeatherSignal } from '../utils/weatherLogic'
-import { requestGroqForecast } from '../utils/groqAgent'
+import { requestForecastStream, resumeForecast } from '../utils/groqAgent'
+import PlanEditor from '../components/PlanEditor'
 import { getTodayInfo } from '../utils/dateTime'
 import { loadProfile } from '../utils/profileStorage'
 import {
@@ -27,7 +28,6 @@ const FALLBACK_WEATHER = {
   windspeed: 8,
 }
 const HISTORY_KEY = 'bazaarBrainHistory'
-const LOADING_DURATION = 600 * 5 + 200
 
 const ERROR_COPY = {
   AUTH_REQUIRED: {
@@ -151,6 +151,10 @@ export default function ForecastPage() {
   const [weatherSignal, setWeatherSignal] = useState(getWeatherSignal(0))
   const [fallbackWeather, setFallbackWeather] = useState(false)
   const [forecast, setForecast] = useState(null)
+  const [liveSteps, setLiveSteps] = useState([])
+  const [pendingApproval, setPendingApproval] = useState(null)
+  // Inventory snapshot of the current run; reused when the vendor approves.
+  const inventorySnapshotRef = useRef(null)
   const [showHindi, setShowHindi] = useState(false)
   const [errorState, setErrorState] = useState(null)
   const [feedback, setFeedback] = useState(null)
@@ -299,6 +303,46 @@ export default function ForecastPage() {
     })
   }
 
+  /** Shared handling for both round-trips: pause for approval, or finish. */
+  const handleRunResponse = (result) => {
+    if (result.status === 'PENDING_APPROVAL') {
+      setPendingApproval({ runId: result.runId, plan: result.plan })
+      setPhase('awaitingApproval')
+      return
+    }
+    completeForecast(result.plan)
+  }
+
+  const completeForecast = (plan) => {
+    const entryId = createId()
+    const newEntry = {
+      id: entryId,
+      date: dateInfo.dateString,
+      dateLabel: dateInfo.dateLabel,
+      stallId: stall.id,
+      stallName: stall.name,
+      expectedCustomers: plan.expectedCustomers,
+      demandMultiplier: Number(demandMultiplier.toFixed(2)),
+      summary: plan.summary,
+      feedback: null,
+      inventorySnapshot: inventorySnapshotRef.current,
+    }
+
+    setCurrentHistoryId(entryId)
+    setHistory((prev) => {
+      const filtered = prev.filter(
+        (item) => item.date !== newEntry.date || item.stallId !== newEntry.stallId,
+      )
+      const next = [newEntry, ...filtered].slice(0, 5)
+      saveHistory(next)
+      return next
+    })
+
+    setForecast(plan)
+    setPendingApproval(null)
+    setPhase('forecastReady')
+  }
+
   const handleForecast = async () => {
     if (!stall) return
     if (sessionIngredients.length < 1) {
@@ -311,65 +355,57 @@ export default function ForecastPage() {
     setForecast(null)
     setShowHindi(false)
     setFeedback(null)
+    setPendingApproval(null)
+    setLiveSteps([])
 
     const inventorySnapshot = buildInventorySnapshot(
       sessionIngredients,
       inventory,
     )
-
-    const delay = new Promise((resolve) => {
-      setTimeout(resolve, LOADING_DURATION)
-    })
+    inventorySnapshotRef.current = inventorySnapshot
 
     try {
-      const forecastPromise = requestGroqForecast({
-        stall,
-        items: sessionIngredients,
-        inventory: inventorySnapshot,
-        dateLabel: dateInfo.dateLabel,
-        dayName: dateInfo.dayName,
-        weather: effectiveWeather,
-        weatherSignal: effectiveWeatherSignal,
-        eventSummary: eventSummaryForPrompt,
-        weeklyMultiplier,
-        eventMultiplier,
-        demandMultiplier: Number(demandMultiplier.toFixed(2)),
-      })
-
-      const [result] = await Promise.all([forecastPromise, delay])
-
-      const entryId = createId()
-      const newEntry = {
-        id: entryId,
-        date: dateInfo.dateString,
-        dateLabel: dateInfo.dateLabel,
-        stallId: stall.id,
-        stallName: stall.name,
-        expectedCustomers: result.expectedCustomers,
-        demandMultiplier: Number(demandMultiplier.toFixed(2)),
-        summary: result.summary,
-        feedback: null,
-        inventorySnapshot,
-      }
-
-      setCurrentHistoryId(entryId)
-      setHistory((prev) => {
-        const filtered = prev.filter(
-          (item) => item.date !== newEntry.date || item.stallId !== newEntry.stallId,
-        )
-        const next = [newEntry, ...filtered].slice(0, 5)
-        saveHistory(next)
-        return next
-      })
-
-      setForecast(result)
-      setPhase('forecastReady')
+      const result = await requestForecastStream(
+        {
+          stall,
+          items: sessionIngredients,
+          inventory: inventorySnapshot,
+          dateLabel: dateInfo.dateLabel,
+          dayName: dateInfo.dayName,
+          weather: effectiveWeather,
+          weatherSignal: effectiveWeatherSignal,
+          eventSummary: eventSummaryForPrompt,
+          weeklyMultiplier,
+          eventMultiplier,
+          demandMultiplier: Number(demandMultiplier.toFixed(2)),
+        },
+        (step) => setLiveSteps((prev) => [...prev, step]),
+      )
+      handleRunResponse(result)
     } catch (error) {
-      await delay
       setErrorState(error?.code ?? 'UNKNOWN')
       setPhase('error')
     }
   }
+
+  /** Resume the paused run with the vendor's decision (T1.8). */
+  const handleApprovalDecision = async (decision) => {
+    if (!pendingApproval) return
+    setPhase('applyingApproval')
+    setLiveSteps(['Applying your changes...', 'Saving your plan...'])
+    try {
+      const result = await resumeForecast(pendingApproval.runId, decision)
+      handleRunResponse(result)
+    } catch (error) {
+      setErrorState(error?.code ?? 'UNKNOWN')
+      setPhase('error')
+    }
+  }
+
+  const handleApprove = (editedPlan) =>
+    handleApprovalDecision({ approved: true, editedPlan })
+
+  const handleReject = () => handleApprovalDecision({ approved: false })
 
   const handleFeedback = (value) => {
     setFeedback(value)
@@ -597,7 +633,18 @@ export default function ForecastPage() {
           </button>
         </div>
 
-        {phase === 'loadingForecast' ? <LoadingState active /> : null}
+        {phase === 'loadingForecast' || phase === 'applyingApproval' ? (
+          <LoadingState active steps={liveSteps} />
+        ) : null}
+
+        {phase === 'awaitingApproval' && pendingApproval ? (
+          <PlanEditor
+            key={pendingApproval.runId}
+            plan={pendingApproval.plan}
+            onApprove={handleApprove}
+            onReject={handleReject}
+          />
+        ) : null}
 
         {showForecast ? (
           <ForecastOutput

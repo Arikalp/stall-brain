@@ -122,6 +122,18 @@ export const ValidationResultSchema = z.object({
 })
 
 /**
+ * Explanation node output (T1.7): bilingual narrative around the validated
+ * plan. Transform-free so it can be used with structured output mode.
+ */
+export const ExplanationSchema = z.object({
+  summary: z.string().min(1),
+  hindiSummary: z.string().min(1),
+  peakHours: z.string().min(1),
+  specialAdvice: z.string().min(1), // "English tip || Hindi tip"
+  confidenceReason: z.string().min(1),
+})
+
+/**
  * Deterministic per-item plan computed in code (graph/nodes/forecast.js).
  * Pure numbers - the LLM reviews this draft but never recomputes it.
  */

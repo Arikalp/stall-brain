@@ -2,7 +2,7 @@ import { auth } from './firebase'
 
 // Base URL of the Express backend (no secrets here - the browser only ever
 // sends its own Firebase ID token).
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 function makeError(code) {
   const error = new Error(code)
@@ -10,7 +10,12 @@ function makeError(code) {
   return error
 }
 
-async function getAccessToken() {
+/**
+ * Firebase ID token for the signed-in vendor. Exported for streaming requests
+ * that build their own fetch (SSE via ReadableStream; EventSource cannot send
+ * auth headers). Still no secrets here - only the vendor's own token.
+ */
+export async function getAccessToken() {
   const user = auth.currentUser
   if (!user) {
     throw makeError('AUTH_REQUIRED')

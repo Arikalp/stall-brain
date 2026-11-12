@@ -36,7 +36,11 @@ Rules:
 - totalNeeded, alreadyHave, and toBuy must include quantities with units (e.g. "12 kg").
 - If an item has sufficient stock, omit it from procurementList and list it in sufficientStockItems.
 - Do not include any keys beyond the schema.
-- If SIGNAL ERRORS are listed below, confidenceLevel must be "Medium" or "Low", and mention the missing signal in confidenceReason.`
+- If SIGNAL ERRORS are listed below, confidenceLevel must be "Medium" or "Low", and mention the missing signal in confidenceReason.
+- You may adjust the DETERMINISTIC DRAFT quantities by at most +/-25% to account for
+  edge cases the math cannot see (spoilage, carry-over stock, price spikes, unusual events).
+  Every adjusted item MUST include a short "note" explaining the adjustment; do not recompute
+  totals from scratch - start from the draft and adjust within the band.`
 
 export function buildUserPrompt(state) {
   const payload = state.request ?? {}
@@ -76,6 +80,22 @@ export function buildUserPrompt(state) {
           .join('\n')}`
       : ''
 
+  const historyNotes = (state.history ?? []).length
+    ? `\n\nRECENT HISTORY (vendor-reported outcomes; use to spot systematic over/under-buying):\n${state.history
+        .slice(0, 7)
+        .map((log) => `- ${log.date}: ${(log.items ?? [])
+          .map((entry) => `${entry.item}=${entry.outcome}`)
+          .join(', ')}`)
+        .join('\n')}`
+    : ''
+
+  const biasNotes =
+    state.bias && Object.keys(state.bias).length
+      ? `\n\nLEARNED BIAS FACTORS (already applied in the draft): ${Object.entries(state.bias)
+          .map(([item, factor]) => `${item} x${factor}`)
+          .join(', ')}`
+      : ''
+
   return `Stall type: ${payload.stall?.name}
 Stock items: ${finalItems.join(', ')}
 The vendor sells these specific items: ${finalItems.join(', ')}
@@ -100,7 +120,7 @@ Events today: ${state.signals?.events?.[0]?.name ?? 'No special events reported 
 Event impact multiplier: ${state.multiplier?.event ?? 1}
 Weekly footfall multiplier for ${payload.dayName}: ${state.multiplier?.weekday ?? 1}
 Combined demand multiplier (weather x event x day-of-week): ${state.multiplier?.combined ?? 1}
-Return precise procurement quantities and peak hours for Hazratganj, Lucknow.${errorNotes}${retryNotes}`
+Return precise procurement quantities and peak hours for Hazratganj, Lucknow.${errorNotes}${historyNotes}${biasNotes}${retryNotes}`
 }
 
 /**

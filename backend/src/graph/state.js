@@ -46,6 +46,13 @@ export const AgentState = Annotation.Root({
   retryCount: Annotation(),
   /** ForecastResult | null - after the vendor approves/edits (T1.8). */
   approvedPlan: Annotation(),
+  /** [{ item, field, from, to }] - what the vendor edited (learning signal for T2.3). */
+  approvedEdits: Annotation(),
+  /** How many times the vendor rejected a plan (max 3 regenerations). */
+  approvalRejections: Annotation({
+    reducer: (a, b) => a + b,
+    default: () => 0,
+  }),
 
   /** Human-readable steps, streamed to the UI. */
   trace: Annotation({

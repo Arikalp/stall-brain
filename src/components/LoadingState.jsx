@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { CheckCircle2, Loader2 } from 'lucide-react'
 
-const steps = [
+const DEFAULT_STEPS = [
   '📡 Fetching Lucknow weather data...',
   '📅 Checking local events calendar...',
   '📊 Analyzing footfall patterns...',
@@ -9,19 +9,28 @@ const steps = [
   '✅ Forecast ready!',
 ]
 
-export default function LoadingState({ active }) {
-  const [activeIndex, setActiveIndex] = useState(-1)
+/**
+ * Progress display. Two modes:
+ *
+ * - `steps` prop given: renders the LIVE agent steps streamed from the
+ *   backend (T1.10). Earlier lines render as done, the newest as active.
+ * - no `steps`: falls back to the timed placeholder progression.
+ */
+export default function LoadingState({ active, steps: liveSteps }) {
+  const [fallbackIndex, setFallbackIndex] = useState(-1)
+
+  const hasLive = Array.isArray(liveSteps) && liveSteps.length > 0
 
   useEffect(() => {
-    if (!active) {
-      setActiveIndex(-1)
+    if (!active || hasLive) {
+      setFallbackIndex(-1)
       return
     }
 
-    setActiveIndex(0)
+    setFallbackIndex(0)
     const interval = setInterval(() => {
-      setActiveIndex((prev) => {
-        if (prev >= steps.length) {
+      setFallbackIndex((prev) => {
+        if (prev >= DEFAULT_STEPS.length) {
           clearInterval(interval)
           return prev
         }
@@ -30,7 +39,11 @@ export default function LoadingState({ active }) {
     }, 600)
 
     return () => clearInterval(interval)
-  }, [active])
+  }, [active, hasLive])
+
+  if (!active) return null
+
+  const steps = hasLive ? liveSteps : DEFAULT_STEPS
 
   return (
     <div className="mt-8 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-6">
@@ -39,11 +52,12 @@ export default function LoadingState({ active }) {
       </h3>
       <div className="mt-4 space-y-3">
         {steps.map((step, index) => {
-          const isVisible = index <= activeIndex
-          if (!isVisible) return null
-
-          const isActive = index === activeIndex && activeIndex < steps.length
-          const isDone = index < activeIndex || activeIndex >= steps.length
+          const isActive = hasLive
+            ? index === steps.length - 1
+            : index === fallbackIndex && fallbackIndex < DEFAULT_STEPS.length
+          const isDone = hasLive
+            ? index < steps.length - 1
+            : index < fallbackIndex
 
           const textColor = isActive
             ? 'text-[var(--color-primary)] animate-pulse'
@@ -53,7 +67,7 @@ export default function LoadingState({ active }) {
 
           return (
             <div
-              key={step}
+              key={`${index}-${step}`}
               className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-input)] px-4 py-3"
             >
               {isActive ? (

@@ -1,11 +1,13 @@
+import { getVendorContext } from '../../store/firestore.js'
+
 /**
- * Loads vendor context: profile, inventory, last 14-30 daily logs, and learned
- * bias factors. Firestore-backed in T2.2/T1.9; for now the request payload
- * carries the profile/inventory and history/bias default to empty.
+ * Loads vendor context (T1.9): profile/inventory from the request, plus the
+ * last 14-30 DailyLog entries and learned bias factors from Firestore.
+ * Degrades gracefully: empty history/bias when Firestore is unavailable.
  *
- * Side-effect free.
+ * Side-effect free (important: this node runs before interrupt()).
  */
-export async function loadContext(state) {
+export async function loadContext(state, deps = {}) {
   const request = state.request ?? {}
 
   const profile = {
@@ -23,14 +25,29 @@ export async function loadContext(state) {
     ]),
   )
 
+  const context = deps.skipFirestore
+    ? { history: [], bias: {} }
+    : await getVendorContext(state.vendorId, { db: deps.db })
+
+  const trace = [
+    `Loaded context for ${profile.stallLabel} (${finalItems.length} items)`,
+    context.history.length
+      ? `History: last ${context.history.length} day(s) of logs`
+      : 'History: none yet (new vendor)',
+    Object.keys(context.bias).length
+      ? `Learned bias factors: ${Object.keys(context.bias).length} item(s)`
+      : 'Bias factors: none yet',
+    ...(context.error ? [context.error] : []),
+  ]
+
   return {
     profile,
     sessionIngredients: finalItems,
     inventory,
     budgetInr: null,
-    history: [],
-    bias: {},
-    date: new Date().toISOString().slice(0, 10),
-    trace: [`Loaded context for ${profile.stallLabel} (${finalItems.length} items)`],
+    history: context.history,
+    bias: context.bias,
+    date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date()),
+    trace,
   }
 }
