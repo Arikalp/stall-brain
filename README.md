@@ -203,6 +203,34 @@ ForecastResult = {
 }
 ```
 
+### Agent graph (LangGraph.js)
+
+The backend runs the forecast as a LangGraph.js agent (`backend/src/graph/`). The `validate → planProcurement` dashed edge is the self-correction loop: a code-based validator rejects bad plans and sends them back to the planner (max 3 retries). Generated with `graph.getGraph().drawMermaid()` (regenerate: `node backend/scripts/dump-mermaid.mjs`).
+
+```mermaid
+%%{init: {'flowchart': {'curve': 'linear'}}}%%
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	loadContext(loadContext)
+	gatherSignals(gatherSignals)
+	forecastDemand(forecastDemand)
+	planProcurement(planProcurement)
+	validate(validate)
+	explain(explain)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> loadContext;
+	explain --> __end__;
+	forecastDemand --> planProcurement;
+	gatherSignals --> forecastDemand;
+	loadContext --> gatherSignals;
+	planProcurement --> validate;
+	validate -.-> planProcurement;
+	validate -.-> explain;
+	classDef default fill:#f2f0ff,line-height:1.2;
+	classDef first fill-opacity:0;
+	classDef last fill:#bfb6fc;
+```
+
 
 ---
 

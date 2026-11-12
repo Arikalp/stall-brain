@@ -14,6 +14,136 @@ export const InventoryEntrySchema = z.object({
   unit: z.string().min(1).default('units'),
 })
 
+/** Matches src/utils/profileStorage.js on the frontend. */
+export const UserProfileSchema = z.object({
+  stallType: z.string().min(1),
+  stallLabel: z.string().min(1),
+  stallEmoji: z.string().min(1),
+  ingredients: z.array(z.string().min(1)).default([]),
+})
+
+/** What the vendor's current session looks like (localStorage today, Firestore later). */
+export const ForecastSessionSchema = z.object({
+  sessionIngredients: z.array(z.string().min(1)).default([]),
+  inventory: z.record(z.string().min(1), InventoryEntrySchema).default({}),
+  budgetInr: z.number().nonnegative().nullable().optional(),
+})
+
+/**
+ * Demand Multiplier = Weather x Event x Day-of-Week (x Festival x Match later).
+ * All factors are multipliers around 1.0; `combined` is computed in code, never by the LLM.
+ */
+export const DemandMultiplierSchema = z.object({
+  weather: z.number(),
+  event: z.number(),
+  weekday: z.number(),
+  festival: z.number().default(1),
+  match: z.number().default(1),
+  combined: z.number(),
+})
+
+/** One curated/local event near Hazratganj. */
+export const EventSignalSchema = z.object({
+  name: z.string().min(1),
+  date: z.string().min(1),
+  distanceKm: z.number().nonnegative().optional(),
+  expectedFootfall: z.enum(['low', 'medium', 'high']).optional(),
+})
+
+export const FestivalSignalSchema = z.object({
+  name: z.string().min(1),
+  impact: z.enum(['low', 'medium', 'high']),
+})
+
+export const MatchSignalSchema = z.object({
+  teams: z.string().min(1),
+  venue: z.string().min(1),
+  startTime: z.string().min(1),
+  expectedCrowd: z.enum(['low', 'medium', 'high']),
+})
+
+export const PriceSignalSchema = z.object({
+  item: z.string().min(1),
+  pricePerUnit: z.number().nonnegative(),
+  unit: z.string().min(1),
+  source: z.string().min(1),
+  isMock: z.boolean().default(false),
+})
+
+/**
+ * Everything the agent gathered about the world today.
+ * `errors` records tool failures; a failed tool never crashes a run.
+ */
+export const SignalsSchema = z.object({
+  weather: z
+    .object({
+      label: z.string().min(1),
+      footfallImpact: z.number(),
+      recommendation: z.string().default(''),
+      temperature: z.number().optional(),
+    })
+    .nullable()
+    .optional(),
+  events: z.array(EventSignalSchema).default([]),
+  festivals: z.array(FestivalSignalSchema).default([]),
+  match: MatchSignalSchema.nullable().optional(),
+  prices: z.array(PriceSignalSchema).default([]),
+  social: z.array(z.string().min(1)).default([]),
+  errors: z.array(z.string().min(1)).default([]),
+})
+
+/** End-of-day report from the vendor (feedback loop input; T2.x). */
+export const DailyOutcomeSchema = z.object({
+  item: z.string().min(1),
+  outcome: z.enum([
+    'sold_out',
+    'just_right',
+    'leftover_small',
+    'leftover_medium',
+    'leftover_large',
+    'wasted',
+  ]),
+  leftoverLevel: z.enum(['small', 'medium', 'large']).nullable().optional(),
+  quantitySold: z.number().nonnegative().optional(),
+})
+
+export const DailyLogSchema = z.object({
+  vendorId: z.string().min(1),
+  date: z.string().min(1), // ISO date (YYYY-MM-DD), Asia/Kolkata
+  items: z.array(DailyOutcomeSchema).default([]),
+  customers: z.number().nonnegative().optional(),
+  createdAt: z.string().optional(),
+})
+
+/** Validator node output (the code-based critic). */
+export const ValidationResultSchema = z.object({
+  valid: z.boolean(),
+  errors: z.array(z.string().min(1)).default([]),
+})
+
+/**
+ * Deterministic per-item plan computed in code (graph/nodes/forecast.js).
+ * Pure numbers - the LLM reviews this draft but never recomputes it.
+ */
+export const DraftPlanItemSchema = z.object({
+  item: z.string().min(1),
+  unit: z.string().min(1),
+  baseline: z.number().nonnegative(),
+  bias: z.number().positive().default(1),
+  totalNeeded: z.number().nonnegative(),
+  alreadyHave: z.number().nonnegative(),
+  toBuy: z.number().nonnegative(),
+})
+
+export const DraftPlanSchema = z.object({
+  items: z.array(DraftPlanItemSchema).default([]),
+  sufficientStockItems: z.array(z.string().min(1)).default([]),
+  expectedCustomers: z.number().nonnegative().optional(),
+  combinedMultiplier: z.number().optional(),
+  /** Component factors that produced combinedMultiplier. */
+  factors: z.record(z.string().min(1), z.number()).optional(),
+})
+
 const weatherShape = {
   temperature: z.coerce.number(),
   weathercode: z.coerce.number().default(0),
@@ -54,7 +184,9 @@ export const ProcurementItemSchema = z.object({
   toBuy: z.string().min(1),
   unit: z.string().min(1),
   priority: z.enum(['essential', 'moderate', 'optional']),
-  note: z.string().optional(),
+  // nullish: models often emit "note": null, and LangChain's structured-output
+  // parser validates against this schema before normalizeLlmForecast can clean it.
+  note: z.string().nullish(),
 })
 
 export const ForecastResultSchema = z.object({
@@ -72,7 +204,7 @@ export const ForecastResultSchema = z.object({
 /**
  * Normalizes common LLM output quirks before strict validation:
  * "12" -> 12 for expectedCustomers, "high" -> "High", "ESSENTIAL" -> "essential",
- * missing sufficientStockItems -> [].
+ * "note": null -> key removed, missing sufficientStockItems -> [].
  */
 export function normalizeLlmForecast(raw) {
   if (!raw || typeof raw !== 'object') return raw
@@ -97,12 +229,17 @@ export function normalizeLlmForecast(raw) {
   if (Array.isArray(normalized.procurementList)) {
     normalized.procurementList = normalized.procurementList.map((item) => {
       if (!item || typeof item !== 'object') return item
+      const clean = { ...item }
+      // Some models emit "note": null; optional string rejects null.
+      if (clean.note === null || clean.note === undefined) {
+        delete clean.note
+      }
       return {
-        ...item,
+        ...clean,
         priority:
-          typeof item.priority === 'string'
-            ? item.priority.toLowerCase().trim()
-            : item.priority,
+          typeof clean.priority === 'string'
+            ? clean.priority.toLowerCase().trim()
+            : clean.priority,
       }
     })
   }
