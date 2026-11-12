@@ -108,7 +108,41 @@ export async function runToolSelection({ llm, tools, messages, state }) {
 
   while (turns < MAX_TOOL_ITERATIONS && totalCalls < MAX_TOOL_CALLS) {
     turns += 1
-    const response = await llmWithTools.invoke(conversation)
+    let response
+    try {
+      response = await llmWithTools.invoke(conversation)
+    } catch (error) {
+      // T4.3: When Groq is unreachable, run direct core signal tools deterministically
+      // without the LLM selector and record a signal warning so confidence drops cleanly.
+      const reason = error?.message ?? String(error)
+      errors.push(`llm-gather: ${reason}`)
+      trace.push('LLM unavailable for tool selection — ran direct signal tools fallback')
+      const fallbackNames = [
+        'getWeather',
+        'getFestivals',
+        'getLocalEvents',
+        'getCricketSchedule',
+        'getMandiPrices',
+      ]
+      const fallbackCalls = fallbackNames
+        .filter((name) => Boolean(toolsByName[name]))
+        .map((name, idx) => ({
+          name,
+          args:
+            name === 'getMandiPrices' && state?.sessionIngredients?.length
+              ? { items: state.sessionIngredients }
+              : {},
+          id: `fallback-${idx}`,
+        }))
+      if (fallbackCalls.length) {
+        totalCalls += fallbackCalls.length
+        const turn = await executeToolCalls({ calls: fallbackCalls, toolsByName })
+        outputs.push(...turn.outputs)
+        errors.push(...turn.errors)
+      }
+      break
+    }
+
     const calls = response?.tool_calls ?? []
 
     if (calls.length === 0) break
@@ -123,7 +157,6 @@ export async function runToolSelection({ llm, tools, messages, state }) {
     conversation.push(...turn.toolMessages)
   }
 
-  void state
   return { outputs, errors, trace, totalCalls, turns }
 }
 

@@ -14,6 +14,8 @@ export function getLlm() {
       model: config.groqModel,
       temperature: 0.4,
       maxTokens: 1200,
+      timeout: config.llmTimeoutMs,
+      maxRetries: config.llmMaxRetries,
       // llama-3.3-70b-versatile was decommissioned; gpt-oss supports reasoning effort.
       reasoningEffort: 'low',
     })

@@ -6,6 +6,7 @@ import { requireAuth } from '../middleware/auth.js'
 import { vendorRateLimit } from '../middleware/rateLimit.js'
 import { ForecastRequestSchema } from '../schemas.js'
 import { getForecastGraph } from '../graph/build.js'
+import { buildRunTraceConfig } from '../utils/tracing.js'
 
 export const forecastRouter = Router()
 
@@ -37,6 +38,7 @@ function buildResponse(finalState) {
       runId: finalState.runId,
       plan: pending.value.plan,
       trace: finalState.trace ?? [],
+      nodeTimings: finalState.nodeTimings ?? [],
     }
   }
   const plan = finalState.approvedPlan ?? finalState.plan
@@ -49,6 +51,7 @@ function buildResponse(finalState) {
     plan,
     simulation: Boolean(finalState.simulation),
     trace: finalState.trace ?? [],
+    nodeTimings: finalState.nodeTimings ?? [],
   }
 }
 
@@ -83,11 +86,17 @@ forecastRouter.post(
     const isSimulation = Boolean(parsedBody.data.simulation)
     const runId = isSimulation ? `sim-${randomUUID()}` : randomUUID()
     const graph = getForecastGraph()
+    const runConfig = buildRunTraceConfig({
+      runId,
+      vendorId: req.vendorId,
+      stallType: parsedBody.data.stall?.id,
+      simulation: isSimulation,
+    })
 
     try {
       const finalState = await graph.invoke(
         { vendorId: req.vendorId, runId, request: parsedBody.data },
-        { configurable: { thread_id: runId } },
+        runConfig,
       )
 
       const response = buildResponse(finalState)
@@ -159,9 +168,17 @@ forecastRouter.post(
         })
       }
 
+      const resumeConfig = buildRunTraceConfig({
+        runId,
+        vendorId: req.vendorId,
+        stallType: snapshot.values.profile?.stallType,
+        retryCount: snapshot.values.retryCount ?? 0,
+        simulation: Boolean(snapshot.values.simulation),
+      })
+
       const finalState = await graph.invoke(
         new Command({ resume: { approved, editedPlan } }),
-        { configurable: { thread_id: runId } },
+        resumeConfig,
       )
 
       const response = buildResponse(finalState)
@@ -226,11 +243,17 @@ forecastRouter.post(
 
     try {
       const graph = getForecastGraph()
+      const streamConfig = buildRunTraceConfig({
+        runId,
+        vendorId: req.vendorId,
+        stallType: parsedBody.data.stall?.id,
+        simulation: isSimulation,
+      })
       const stream = await graph.stream(
         { vendorId: req.vendorId, runId, request: parsedBody.data },
         {
           streamMode: ['updates', 'custom'],
-          configurable: { thread_id: runId },
+          ...streamConfig,
         },
       )
 
@@ -265,7 +288,12 @@ forecastRouter.post(
           })
           const plan = snapshot?.values?.approvedPlan ?? snapshot?.values?.plan
           if (plan) {
-            send('done', { runId, plan, simulation: isSimulation })
+            send('done', {
+              runId,
+              plan,
+              simulation: isSimulation,
+              nodeTimings: snapshot?.values?.nodeTimings ?? [],
+            })
           } else {
             send('error', { message: 'The run ended without a plan.' })
           }

@@ -34,6 +34,17 @@ const envSchema = z.object({
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_WHATSAPP_FROM: z.string().optional(),
+  // Optional observability & reliability settings (Phase 4: T4.2 / T4.3).
+  LANGSMITH_TRACING: z.string().optional(),
+  LANGSMITH_API_KEY: z.string().optional(),
+  LANGSMITH_PROJECT: z.string().default('bazaar-brain'),
+  LANGSMITH_ENDPOINT: z.string().optional(),
+  LANGFUSE_PUBLIC_KEY: z.string().optional(),
+  LANGFUSE_SECRET_KEY: z.string().optional(),
+  LANGFUSE_BASE_URL: z.string().optional(),
+  SIGNAL_CACHE_TTL_MS: z.coerce.number().int().positive().default(30 * 60 * 1000),
+  LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(20000),
+  LLM_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
 })
 
 const parsed = envSchema.safeParse(process.env)
@@ -76,4 +87,24 @@ export const config = Object.freeze({
   twilioAccountSid: parsed.data.TWILIO_ACCOUNT_SID,
   twilioAuthToken: parsed.data.TWILIO_AUTH_TOKEN,
   twilioWhatsappFrom: parsed.data.TWILIO_WHATSAPP_FROM,
+  langsmithTracing: parsed.data.LANGSMITH_TRACING === 'true',
+  langsmithApiKey: parsed.data.LANGSMITH_API_KEY,
+  langsmithProject: parsed.data.LANGSMITH_PROJECT,
+  langsmithEndpoint: parsed.data.LANGSMITH_ENDPOINT,
+  langfusePublicKey: parsed.data.LANGFUSE_PUBLIC_KEY,
+  langfuseSecretKey: parsed.data.LANGFUSE_SECRET_KEY,
+  langfuseBaseUrl: parsed.data.LANGFUSE_BASE_URL,
+  signalCacheTtlMs: parsed.data.SIGNAL_CACHE_TTL_MS,
+  llmTimeoutMs: parsed.data.LLM_TIMEOUT_MS,
+  llmMaxRetries: parsed.data.LLM_MAX_RETRIES,
 })
+
+// Bridge LANGSMITH_* vars to LANGCHAIN_* env vars expected by @langchain/core callbacks.
+if (config.langsmithTracing && config.langsmithApiKey) {
+  process.env.LANGCHAIN_TRACING_V2 ??= 'true'
+  process.env.LANGCHAIN_API_KEY ??= config.langsmithApiKey
+  process.env.LANGCHAIN_PROJECT ??= config.langsmithProject
+  if (config.langsmithEndpoint) {
+    process.env.LANGCHAIN_ENDPOINT ??= config.langsmithEndpoint
+  }
+}

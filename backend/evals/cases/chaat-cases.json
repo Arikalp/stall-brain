@@ -1,0 +1,81 @@
+[
+  {
+    "id": "chaat-normal-thursday",
+    "description": "Chaat stall on a clear normal Thursday with no special events",
+    "stallType": "chaat",
+    "date": "2026-11-12",
+    "dayName": "Thursday",
+    "items": ["aloo", "chhole", "dahi"],
+    "inventory": {},
+    "bias": {},
+    "multiplier": { "weather": 1.0, "event": 1.0, "weekday": 1.0 },
+    "signals": {},
+    "actualDemand": { "aloo": 12.2, "chhole": 6.1, "dahi": 7.9 }
+  },
+  {
+    "id": "chaat-sunday-rush",
+    "description": "Chaat stall on a busy Sunny Sunday in Hazratganj",
+    "stallType": "chaat",
+    "date": "2026-11-15",
+    "dayName": "Sunday",
+    "items": ["aloo", "puri", "dahi"],
+    "inventory": {},
+    "bias": { "puri": 1.05 },
+    "multiplier": { "weather": 1.2, "event": 1.0, "weekday": 1.2 },
+    "signals": {},
+    "actualDemand": { "aloo": 17.5, "puri": 440, "dahi": 11.4 }
+  },
+  {
+    "id": "chaat-rainy-monday",
+    "description": "Chaat stall on a rainy Monday evening (footfall drop)",
+    "stallType": "chaat",
+    "date": "2026-11-16",
+    "dayName": "Monday",
+    "items": ["aloo", "dahi", "sev"],
+    "inventory": {},
+    "bias": {},
+    "multiplier": { "weather": 0.7, "event": 1.0, "weekday": 0.9 },
+    "signals": {},
+    "actualDemand": { "aloo": 7.4, "dahi": 5.1, "sev": 1.9 }
+  },
+  {
+    "id": "chaat-diwali-festival",
+    "description": "Chaat stall on Diwali evening with learned positive bias on aloo",
+    "stallType": "chaat",
+    "date": "2026-11-08",
+    "dayName": "Sunday",
+    "items": ["aloo", "chhole", "imli chutney"],
+    "inventory": {},
+    "bias": { "aloo": 1.15, "chhole": 1.1 },
+    "multiplier": { "weather": 1.05, "event": 1.0, "weekday": 1.2 },
+    "signals": { "festivals": [{ "name": "Diwali", "impact": "high" }] },
+    "actualDemand": { "aloo": 23.8, "chhole": 11.2, "imli chutney": 7.0 }
+  },
+  {
+    "id": "chaat-ekana-match",
+    "description": "Chaat stall on LSG vs CSK Ekana Cricket night match",
+    "stallType": "chaat",
+    "date": "2026-11-14",
+    "dayName": "Saturday",
+    "items": ["aloo", "puri", "sev"],
+    "inventory": {},
+    "bias": {},
+    "multiplier": { "weather": 1.0, "event": 1.0, "weekday": 1.15 },
+    "signals": { "match": { "teams": "LSG vs CSK", "venue": "Ekana", "startTime": "7:30 PM", "expectedCrowd": "high" } },
+    "actualDemand": { "aloo": 20.5, "puri": 510, "sev": 5.2 }
+  },
+  {
+    "id": "chaat-learned-overbuy-bias",
+    "description": "Chaat vendor consistently leftover dahi -> EMA bias lowered to 0.78",
+    "stallType": "chaat",
+    "date": "2026-11-11",
+    "dayName": "Wednesday",
+    "items": ["aloo", "dahi"],
+    "inventory": {},
+    "bias": { "aloo": 0.9, "dahi": 0.78 },
+    "multiplier": { "weather": 1.0, "event": 1.0, "weekday": 1.0 },
+    "signals": {},
+    "actualDemand": { "aloo": 10.7, "dahi": 6.2 }
+  }
+]
+

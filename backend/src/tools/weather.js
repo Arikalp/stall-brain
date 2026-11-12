@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { tool } from '@langchain/core/tools'
+import { cachedLookup } from '../utils/cache.js'
+import { withRetry } from '../utils/retry.js'
 
 /**
  * Real Open-Meteo weather for Hazratganj, Lucknow (hourly + daily).
@@ -32,62 +34,75 @@ export function mapWeatherCode(code) {
  */
 export async function fetchWeatherSignal({ date, fetchImpl = fetch } = {}) {
   const target = date ?? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date())
-  const params = new URLSearchParams({
-    latitude: String(HAZRATGANJ.latitude),
-    longitude: String(HAZRATGANJ.longitude),
-    hourly: 'temperature_2m,precipitation_probability,weather_code',
-    daily: 'temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code',
-    timezone: 'Asia/Kolkata',
-    forecast_days: '3',
-  })
+  const isCustomFetch = fetchImpl !== fetch
 
-  const response = await fetchImpl(`https://api.open-meteo.com/v1/forecast?${params}`, {
-    signal: AbortSignal.timeout(8000),
-  })
-  if (!response.ok) {
-    throw new Error(`Open-Meteo responded ${response.status}`)
-  }
+  return cachedLookup(
+    `weather:${target}`,
+    async () => {
+      const params = new URLSearchParams({
+        latitude: String(HAZRATGANJ.latitude),
+        longitude: String(HAZRATGANJ.longitude),
+        hourly: 'temperature_2m,precipitation_probability,weather_code',
+        daily: 'temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code',
+        timezone: 'Asia/Kolkata',
+        forecast_days: '3',
+      })
 
-  const data = await response.json()
-  const times = data?.hourly?.time ?? []
-  const dayIndex = times.findIndex((time) => time.startsWith(target))
-  if (dayIndex === -1) {
-    throw new Error(`Open-Meteo has no forecast for ${target}`)
-  }
+      const data = await withRetry(
+        async () => {
+          const response = await fetchImpl(`https://api.open-meteo.com/v1/forecast?${params}`, {
+            signal: AbortSignal.timeout(8000),
+          })
+          if (!response.ok) {
+            throw new Error(`Open-Meteo responded ${response.status}`)
+          }
+          return response.json()
+        },
+        { retries: isCustomFetch ? 0 : 1, delayMs: 150, timeoutMs: 9000, label: 'open-meteo' },
+      )
 
-  function summarizeDay(startIdx) {
-    const hours = times.slice(startIdx, startIdx + 24)
-    if (!hours.length) return null
-    const dateStr = hours[0].slice(0, 10)
-    const temps = (data.hourly.temperature_2m ?? []).slice(startIdx, startIdx + 24)
-    const codes = (data.hourly.weather_code ?? []).slice(startIdx, startIdx + 24)
-    const rain = (data.hourly.precipitation_probability ?? []).slice(startIdx, startIdx + 24)
+      const times = data?.hourly?.time ?? []
+      const dayIndex = times.findIndex((time) => time.startsWith(target))
+      if (dayIndex === -1) {
+        throw new Error(`Open-Meteo has no forecast for ${target}`)
+      }
 
-    const dayCode = codes[12] ?? codes[0] ?? 0
-    const signal = mapWeatherCode(dayCode)
-    const maxRain = rain.length ? Math.max(...rain.map((value) => value ?? 0)) : 0
-    const peakRainHour = rain.indexOf(maxRain)
-    return {
-      date: dateStr,
-      label: signal.label,
-      footfallImpact: signal.footfallImpact,
-      recommendation: `${signal.recommendation}${maxRain > 40 ? ` Rain probability peaks at ${maxRain}% around ${hours[peakRainHour]?.slice(11) ?? ''}.` : ''}`,
-      temperature: Math.round(temps[12] ?? temps[0] ?? 0),
-      rainProbabilityPeak: maxRain,
-    }
-  }
+      function summarizeDay(startIdx) {
+        const hours = times.slice(startIdx, startIdx + 24)
+        if (!hours.length) return null
+        const dateStr = hours[0].slice(0, 10)
+        const temps = (data.hourly.temperature_2m ?? []).slice(startIdx, startIdx + 24)
+        const codes = (data.hourly.weather_code ?? []).slice(startIdx, startIdx + 24)
+        const rain = (data.hourly.precipitation_probability ?? []).slice(startIdx, startIdx + 24)
 
-  const todaySummary = summarizeDay(dayIndex)
-  const lookahead = [0, 1, 2]
-    .map((offset) => summarizeDay(dayIndex + offset * 24))
-    .filter(Boolean)
+        const dayCode = codes[12] ?? codes[0] ?? 0
+        const signal = mapWeatherCode(dayCode)
+        const maxRain = rain.length ? Math.max(...rain.map((value) => value ?? 0)) : 0
+        const peakRainHour = rain.indexOf(maxRain)
+        return {
+          date: dateStr,
+          label: signal.label,
+          footfallImpact: signal.footfallImpact,
+          recommendation: `${signal.recommendation}${maxRain > 40 ? ` Rain probability peaks at ${maxRain}% around ${hours[peakRainHour]?.slice(11) ?? ''}.` : ''}`,
+          temperature: Math.round(temps[12] ?? temps[0] ?? 0),
+          rainProbabilityPeak: maxRain,
+        }
+      }
 
-  return {
-    ...todaySummary,
-    lookahead,
-    source: 'open-meteo',
-    isMock: false,
-  }
+      const todaySummary = summarizeDay(dayIndex)
+      const lookahead = [0, 1, 2]
+        .map((offset) => summarizeDay(dayIndex + offset * 24))
+        .filter(Boolean)
+
+      return {
+        ...todaySummary,
+        lookahead,
+        source: 'open-meteo',
+        isMock: false,
+      }
+    },
+    { bypass: isCustomFetch },
+  )
 }
 
 const WeatherInput = z.object({

@@ -40,13 +40,26 @@ export function routeAfterApproval(state) {
   return 'save'
 }
 
+/** Wraps a graph node to record per-node execution duration in state.nodeTimings (T4.2). */
+export function wrapNodeWithTiming(nodeName, fn) {
+  return async (state, config) => {
+    const start = Date.now()
+    const update = await fn(state, config)
+    const durationMs = Math.max(0, Date.now() - start)
+    return {
+      ...(update ?? {}),
+      nodeTimings: [{ node: nodeName, durationMs }],
+    }
+  }
+}
+
 /**
  * Builds the forecast agent graph. Compiled with a checkpointer so runs are
  * resumable by runId/thread_id. `nodeOverrides` lets tests swap in fake nodes
  * (e.g. a stubbed planner that needs no LLM key).
  */
 export function buildForecastGraph(nodeOverrides = {}, { checkpointer } = {}) {
-  const nodes = {
+  const rawNodes = {
     loadContext,
     gatherSignals,
     forecastDemand,
@@ -57,6 +70,9 @@ export function buildForecastGraph(nodeOverrides = {}, { checkpointer } = {}) {
     save,
     ...nodeOverrides,
   }
+  const nodes = Object.fromEntries(
+    Object.entries(rawNodes).map(([name, fn]) => [name, wrapNodeWithTiming(name, fn)]),
+  )
 
   const workflow = new StateGraph(AgentState)
     .addNode('loadContext', nodes.loadContext)

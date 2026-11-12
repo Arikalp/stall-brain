@@ -1,4 +1,3 @@
-/* eslint-disable no-restricted-globals */
 const CACHE_NAME = 'bazaar-brain-shell-v1'
 const PRECACHE_ENTRIES = self.__WB_MANIFEST || []
 const PRECACHE_URLS = [

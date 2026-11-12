@@ -1,0 +1,88 @@
+[
+  {
+    "id": "snacks-mela-high",
+    "description": "Snacks stall during high-footfall Hazratganj Book Fair / Mela",
+    "stallType": "snacks",
+    "date": "2026-11-14",
+    "dayName": "Saturday",
+    "items": ["mixture", "mathi", "chips", "packaging pouches"],
+    "inventory": {},
+    "bias": { "chips": 1.1 },
+    "multiplier": { "weather": 1.05, "event": 1.35, "weekday": 1.15 },
+    "signals": { "events": [{ "name": "Hazratganj Mela", "expectedFootfall": "high" }] },
+    "actualDemand": { "mixture": 13.0, "mathi": 98, "chips": 144, "packaging pouches": 244 }
+  },
+  {
+    "id": "snacks-tomorrow-match-prebuffer",
+    "description": "Snacks stall pre-buffering dry packaged goods +15% ahead of Saturday match",
+    "stallType": "snacks",
+    "date": "2026-11-13",
+    "dayName": "Friday",
+    "items": ["mixture", "chips", "packaging pouches"],
+    "inventory": {},
+    "bias": {},
+    "multiplier": { "weather": 1.0, "event": 1.0, "weekday": 1.05 },
+    "signals": {
+      "lookahead": [
+        { "date": "2026-11-13", "weather": { "label": "Clear", "footfallImpact": 1.0 } },
+        { "date": "2026-11-14", "match": { "teams": "LSG vs RCB", "venue": "Ekana", "startTime": "7:30 PM", "expectedCrowd": "high" } }
+      ]
+    },
+    "actualDemand": { "mixture": 9.6, "chips": 97, "packaging pouches": 182 }
+  },
+  {
+    "id": "snacks-normal-wednesday",
+    "description": "Snacks stall midweek steady traffic with learned negative bias on mathi",
+    "stallType": "snacks",
+    "date": "2026-11-11",
+    "dayName": "Wednesday",
+    "items": ["mixture", "mathi"],
+    "inventory": {},
+    "bias": { "mathi": 0.8 },
+    "multiplier": { "weather": 1.0, "event": 1.0, "weekday": 1.0 },
+    "signals": {},
+    "actualDemand": { "mixture": 8.1, "mathi": 48 }
+  },
+  {
+    "id": "balloon-janpath-sunday",
+    "description": "Balloon & toy vendor on sunny Sunday with family crowds",
+    "stallType": "balloon",
+    "date": "2026-11-15",
+    "dayName": "Sunday",
+    "items": ["balloons", "small toys", "string"],
+    "inventory": {},
+    "bias": { "balloons": 1.15 },
+    "multiplier": { "weather": 1.2, "event": 1.0, "weekday": 1.2 },
+    "signals": {},
+    "actualDemand": { "balloons": 330, "small toys": 58, "string": 2.9 }
+  },
+  {
+    "id": "balloon-social-closure",
+    "description": "Balloon stall affected by road closure social alert (0.85 social factor)",
+    "stallType": "balloon",
+    "date": "2026-11-12",
+    "dayName": "Thursday",
+    "items": ["balloons", "small toys"],
+    "inventory": {},
+    "bias": {},
+    "multiplier": { "weather": 1.0, "event": 1.0, "weekday": 1.0 },
+    "signals": {
+      "socialBuzz": { "hasSpike": true, "direction": "down", "factor": 0.85, "label": "Road diversion" }
+    },
+    "actualDemand": { "balloons": 170, "small toys": 34 }
+  },
+  {
+    "id": "balloon-eid-festival",
+    "description": "Balloon & toy vendor on high-crowd festival weekend",
+    "stallType": "balloon",
+    "date": "2026-11-14",
+    "dayName": "Saturday",
+    "items": ["balloons", "small toys", "string"],
+    "inventory": {},
+    "bias": {},
+    "multiplier": { "weather": 1.1, "event": 1.0, "weekday": 1.15 },
+    "signals": { "festivals": [{ "name": "Eid-ul-Fitr", "impact": "high" }] },
+    "actualDemand": { "balloons": 355, "small toys": 71, "string": 3.5 }
+  }
+]
+

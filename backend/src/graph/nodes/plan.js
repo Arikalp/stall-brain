@@ -3,6 +3,7 @@ import {
   ForecastResultSchema,
   normalizeLlmForecast,
 } from '../../schemas.js'
+import { buildFallbackPlan } from './validate.js'
 
 // Kept close to the prompt the frontend used before the key moved server-side.
 // Exported so tests can assert on the confidence/tool-error rules.
@@ -154,24 +155,39 @@ Return precise procurement quantities and peak hours for Hazratganj, Lucknow.${e
  * structured output, validated against ForecastResultSchema before use.
  * On retry, validation errors are passed back in the prompt.
  */
-export async function planProcurement(state) {
-  const llm = getLlm()
-  const structuredLlm = llm.withStructuredOutput(ForecastResultSchema)
+export async function planProcurement(state, deps = {}) {
+  try {
+    const llm = deps.llm ?? getLlm()
+    const structuredLlm = llm.withStructuredOutput(ForecastResultSchema)
 
-  const result = await structuredLlm.invoke([
-    { role: 'system', content: SYSTEM_PROMPT },
-    { role: 'user', content: buildUserPrompt(state) },
-  ])
+    const result = await structuredLlm.invoke([
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: buildUserPrompt(state) },
+    ])
 
-  // Re-validate every LLM output before use (project rule).
-  const plan = ForecastResultSchema.parse(normalizeLlmForecast(result))
+    // Re-validate every LLM output before use (project rule).
+    const plan = ForecastResultSchema.parse(normalizeLlmForecast(result))
 
-  return {
-    plan,
-    trace: [
-      state.retryCount > 0
-        ? `Planner retry #${state.retryCount} succeeded`
-        : 'Planner produced a validated plan',
-    ],
+    return {
+      plan,
+      trace: [
+        state.retryCount > 0
+          ? `Planner retry #${state.retryCount} succeeded`
+          : 'Planner produced a validated plan',
+      ],
+    }
+  } catch (error) {
+    // T4.3: If Groq is unreachable or times out, fall back deterministically to
+    // the code-computed draft marked Low confidence so the vendor always gets a plan.
+    const fallback = buildFallbackPlan(state.draftPlan, state.multiplier, {
+      itemPrices: state.itemPrices,
+      prices: state.signals?.prices,
+      budgetInr: state.budgetInr,
+    })
+    fallback.confidenceReason = `LLM unavailable (${error?.message ?? 'unreachable'}); generated from deterministic demand math.`
+    return {
+      plan: fallback,
+      trace: ['Planner LLM unreachable — used deterministic fallback plan (Low confidence)'],
+    }
   }
 }

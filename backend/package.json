@@ -12,7 +12,8 @@
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "eval": "node evals/backtest.js"
   },
   "dependencies": {
     "@langchain/core": "^1.4.0",
@@ -24,6 +25,7 @@
     "express-rate-limit": "^8.2.1",
     "firebase-admin": "^13.6.0",
     "helmet": "^8.1.0",
+    "lru-cache": "^11.5.3",
     "node-cron": "^4.6.0",
     "zod": "^4.1.13"
   },

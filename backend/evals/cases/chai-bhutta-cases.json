@@ -1,0 +1,88 @@
+[
+  {
+    "id": "chai-normal-morning",
+    "description": "Chai tapri on partly cloudy Friday morning",
+    "stallType": "chai",
+    "date": "2026-11-13",
+    "dayName": "Friday",
+    "items": ["milk", "sugar", "cups"],
+    "inventory": {},
+    "bias": {},
+    "multiplier": { "weather": 1.05, "event": 1.0, "weekday": 1.05 },
+    "signals": {},
+    "actualDemand": { "milk": 22.0, "sugar": 5.5, "cups": 330 }
+  },
+  {
+    "id": "chai-rainy-tomorrow-perishable-guard",
+    "description": "Chai stall where tomorrow forecast shows heavy rain -> 1d milk stays lean",
+    "stallType": "chai",
+    "date": "2026-11-12",
+    "dayName": "Thursday",
+    "items": ["milk", "tea leaves", "cups"],
+    "inventory": {},
+    "bias": { "milk": 1.2 },
+    "multiplier": { "weather": 1.1, "event": 1.0, "weekday": 1.0 },
+    "signals": {
+      "lookahead": [
+        { "date": "2026-11-12", "weather": { "label": "Clear", "footfallImpact": 1.1 } },
+        { "date": "2026-11-13", "weather": { "label": "Heavy Rain", "footfallImpact": 0.65, "rainProbabilityPeak": 85 } }
+      ]
+    },
+    "actualDemand": { "milk": 18.2, "tea leaves": 2.2, "cups": 330 }
+  },
+  {
+    "id": "chai-social-buzz-foodwalk",
+    "description": "Chai stall with #Hazratganj viral foodwalk social buzz (+10%)",
+    "stallType": "chai",
+    "date": "2026-11-14",
+    "dayName": "Saturday",
+    "items": ["milk", "sugar", "cups"],
+    "inventory": {},
+    "bias": {},
+    "multiplier": { "weather": 1.05, "event": 1.0, "weekday": 1.15 },
+    "signals": {
+      "socialBuzz": { "hasSpike": true, "factor": 1.1, "label": "#Hazratganj food walk", "topics": ["#Hazratganj"] }
+    },
+    "actualDemand": { "milk": 26.2, "sugar": 6.6, "cups": 395 }
+  },
+  {
+    "id": "chai-foggy-winter",
+    "description": "Chai stall on foggy morning (0.85 weather drop)",
+    "stallType": "chai",
+    "date": "2026-12-18",
+    "dayName": "Friday",
+    "items": ["milk", "sugar"],
+    "inventory": {},
+    "bias": { "milk": 1.1 },
+    "multiplier": { "weather": 0.85, "event": 1.0, "weekday": 1.05 },
+    "signals": {},
+    "actualDemand": { "milk": 19.6, "sugar": 4.5 }
+  },
+  {
+    "id": "bhutta-clear-weekend",
+    "description": "Bhutta stall on clear Saturday evening with local fair",
+    "stallType": "bhutta",
+    "date": "2026-11-14",
+    "dayName": "Saturday",
+    "items": ["corn cobs", "butter", "charcoal"],
+    "inventory": {},
+    "bias": {},
+    "multiplier": { "weather": 1.2, "event": 1.2, "weekday": 1.15 },
+    "signals": { "events": [{ "name": "Hazratganj Evening Fair", "expectedFootfall": "medium" }] },
+    "actualDemand": { "corn cobs": 245, "butter": 5.0, "charcoal": 8.2 }
+  },
+  {
+    "id": "bhutta-thunderstorm",
+    "description": "Bhutta stall during thunderstorm warning (0.4x clamp)",
+    "stallType": "bhutta",
+    "date": "2026-11-17",
+    "dayName": "Tuesday",
+    "items": ["corn cobs", "butter", "masala"],
+    "inventory": {},
+    "bias": {},
+    "multiplier": { "weather": 0.4, "event": 1.0, "weekday": 0.9 },
+    "signals": {},
+    "actualDemand": { "corn cobs": 62, "butter": 1.2, "masala": 0.42 }
+  }
+]
+

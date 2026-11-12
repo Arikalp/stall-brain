@@ -61,7 +61,8 @@ export async function flushOfflineLogQueue(submitFn = submitDailyLog) {
   let synced = 0
 
   for (const entry of queued) {
-    const { queuedAt: _ignored, ...payload } = entry
+    const payload = { ...entry }
+    delete payload.queuedAt
     try {
       await submitFn(payload)
       synced += 1

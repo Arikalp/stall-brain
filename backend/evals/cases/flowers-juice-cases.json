@@ -1,0 +1,86 @@
+[
+  {
+    "id": "flowers-wedding-season",
+    "description": "Flower stall during November wedding peak (high festival/wedding uplift, 1d rose cap)",
+    "stallType": "flowers",
+    "date": "2026-11-21",
+    "dayName": "Saturday",
+    "items": ["roses", "marigold", "jasmine garlands"],
+    "inventory": {},
+    "bias": { "roses": 1.4 },
+    "multiplier": { "weather": 1.2, "event": 1.0, "weekday": 1.15 },
+    "signals": { "festivals": [{ "name": "Wedding Season (Peak)", "impact": "medium" }] },
+    "actualDemand": { "roses": 295, "marigold": 485, "jasmine garlands": 118 }
+  },
+  {
+    "id": "flowers-navratri-high",
+    "description": "Flower stall during Navratri / Pooja festival surge",
+    "stallType": "flowers",
+    "date": "2026-10-15",
+    "dayName": "Thursday",
+    "items": ["marigold", "leaves"],
+    "inventory": {},
+    "bias": { "marigold": 1.2 },
+    "multiplier": { "weather": 1.05, "event": 1.0, "weekday": 1.0 },
+    "signals": { "festivals": [{ "name": "Navratri", "impact": "high" }] },
+    "actualDemand": { "marigold": 520, "leaves": 150 }
+  },
+  {
+    "id": "flowers-rainy-tomorrow-spoilage",
+    "description": "Flower stall ahead of tomorrow heavy rain -> trims roses & jasmine",
+    "stallType": "flowers",
+    "date": "2026-11-12",
+    "dayName": "Thursday",
+    "items": ["roses", "jasmine garlands"],
+    "inventory": {},
+    "bias": { "roses": 1.25 },
+    "multiplier": { "weather": 1.0, "event": 1.0, "weekday": 1.0 },
+    "signals": {
+      "lookahead": [
+        { "date": "2026-11-12", "weather": { "label": "Clear", "footfallImpact": 1.0 } },
+        { "date": "2026-11-13", "weather": { "label": "Heavy Rain", "footfallImpact": 0.65, "rainProbabilityPeak": 90 } }
+      ]
+    },
+    "actualDemand": { "roses": 175, "jasmine garlands": 70 }
+  },
+  {
+    "id": "juice-sunny-summer",
+    "description": "Juice stall on bright sunny Sunday afternoon",
+    "stallType": "juice",
+    "date": "2026-11-15",
+    "dayName": "Sunday",
+    "items": ["seasonal fruits", "sugarcane", "cups", "ice"],
+    "inventory": {},
+    "bias": { "seasonal fruits": 1.15 },
+    "multiplier": { "weather": 1.2, "event": 1.0, "weekday": 1.2 },
+    "signals": {},
+    "actualDemand": { "seasonal fruits": 24.5, "sugarcane": 28.5, "cups": 355, "ice": 14.2 }
+  },
+  {
+    "id": "juice-rainy-cool-day",
+    "description": "Juice stall on cold rainy Monday (negative vendor bias on ice)",
+    "stallType": "juice",
+    "date": "2026-11-16",
+    "dayName": "Monday",
+    "items": ["seasonal fruits", "ice", "cups"],
+    "inventory": {},
+    "bias": { "ice": 0.75 },
+    "multiplier": { "weather": 0.7, "event": 1.0, "weekday": 0.9 },
+    "signals": {},
+    "actualDemand": { "seasonal fruits": 9.4, "ice": 4.8, "cups": 158 }
+  },
+  {
+    "id": "juice-ekana-match-day",
+    "description": "Juice stall with afternoon crowds before Ekana cricket match",
+    "stallType": "juice",
+    "date": "2026-11-14",
+    "dayName": "Saturday",
+    "items": ["sugarcane", "cups", "straws"],
+    "inventory": {},
+    "bias": {},
+    "multiplier": { "weather": 1.05, "event": 1.0, "weekday": 1.15 },
+    "signals": { "match": { "teams": "LSG vs MI", "venue": "Ekana", "startTime": "3:30 PM", "expectedCrowd": "high" } },
+    "actualDemand": { "sugarcane": 36.5, "cups": 450, "straws": 540 }
+  }
+]
+

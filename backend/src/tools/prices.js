@@ -3,6 +3,7 @@ import { tool } from '@langchain/core/tools'
 import { mockMandiPrices } from '../data/prices.js'
 import { todayIso } from '../utils/dates.js'
 import { config } from '../config.js'
+import { cachedLookup } from '../utils/cache.js'
 
 /**
  * Mandi prices for key ingredients. With DATA_GOV_IN_API_KEY configured, pulls
@@ -76,11 +77,17 @@ export async function getMandiPrices({ items, apiKey, fetchImpl = fetch } = {}) 
   const key = apiKey ?? config.dataGovInApiKey
   if (key) {
     try {
-      const real = await fetchAgmarknetPrices({
-        items,
-        apiKey: key,
-        fetchImpl,
-      })
+      const cacheKey = `mandi:${todayIso()}:${(items ?? []).join(',').toLowerCase()}`
+      const real = await cachedLookup(
+        cacheKey,
+        () =>
+          fetchAgmarknetPrices({
+            items,
+            apiKey: key,
+            fetchImpl,
+          }),
+        { bypass: fetchImpl !== fetch },
+      )
       return { prices: real, isMock: false, note: 'Live Agmarknet prices via data.gov.in.' }
     } catch (error) {
       return {

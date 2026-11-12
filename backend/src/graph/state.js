@@ -69,4 +69,10 @@ export const AgentState = Annotation.Root({
     reducer: (a, b) => a.concat(b),
     default: () => [],
   }),
+
+  /** Per-node wall-clock timings in ms (T4.2). */
+  nodeTimings: Annotation({
+    reducer: (a, b) => a.concat(b),
+    default: () => [],
+  }),
 })

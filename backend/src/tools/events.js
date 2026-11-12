@@ -7,6 +7,7 @@ import {
   weddingSeasonWindows,
 } from '../data/festivals.js'
 import { addDays, impactLevel, todayIso } from '../utils/dates.js'
+import { cachedLookup } from '../utils/cache.js'
 
 /**
  * Curated local events + festival calendar for Hazratganj, Lucknow.
@@ -77,7 +78,14 @@ const DateInput = z.object({
 })
 
 export const getFestivalsTool = tool(
-  async ({ date }) => JSON.stringify(lookupFestivals({ today: date ?? todayIso() })),
+  async ({ date }) => {
+    const target = date ?? todayIso()
+    return JSON.stringify(
+      await cachedLookup(`festivals:${target}`, () =>
+        lookupFestivals({ today: target }),
+      ),
+    )
+  },
   {
     name: 'getFestivals',
     description:
@@ -87,7 +95,14 @@ export const getFestivalsTool = tool(
 )
 
 export const getLocalEventsTool = tool(
-  async ({ date }) => JSON.stringify(lookupLocalEvents({ today: date ?? todayIso() })),
+  async ({ date }) => {
+    const target = date ?? todayIso()
+    return JSON.stringify(
+      await cachedLookup(`events:${target}`, () =>
+        lookupLocalEvents({ today: target }),
+      ),
+    )
+  },
   {
     name: 'getLocalEvents',
     description:
