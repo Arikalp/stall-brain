@@ -8,6 +8,7 @@ import FeedbackBar from '../components/FeedbackBar'
 import HistoryLog from '../components/HistoryLog'
 import EndOfDayLog from '../components/EndOfDayLog'
 import LoadingState from '../components/LoadingState'
+import VoiceInventoryInput from '../components/VoiceInventoryInput'
 import { getEventsForDate, getWeeklyMultiplier } from '../data/events'
 import { getWeatherSignal } from '../utils/weatherLogic'
 import { requestForecastStream, resumeForecast } from '../utils/groqAgent'
@@ -354,6 +355,38 @@ export default function ForecastPage() {
     })
   }
 
+  /** Applies confirmed voice-parsed stock entries (T3.1). */
+  const handleVoiceInventoryConfirm = (parsedEntries) => {
+    if (!Array.isArray(parsedEntries) || !parsedEntries.length) return
+
+    setSessionIngredients((prev) => {
+      const next = [...prev]
+      for (const entry of parsedEntries) {
+        const exists = next.some(
+          (item) => item.toLowerCase() === entry.item.toLowerCase(),
+        )
+        if (!exists) next.push(entry.item)
+      }
+      return next
+    })
+
+    setInventory((prev) => {
+      const next = { ...prev }
+      for (const entry of parsedEntries) {
+        const matchingKey =
+          Object.keys(next).find(
+            (key) => key.toLowerCase() === entry.item.toLowerCase(),
+          ) ?? entry.item
+        next[matchingKey] = {
+          quantity: entry.quantity,
+          unit: entry.unit,
+        }
+      }
+      return next
+    })
+    setItemError('')
+  }
+
   /** Shared handling for both round-trips: pause for approval, or finish. */
   const handleRunResponse = (result) => {
     if (result.status === 'PENDING_APPROVAL') {
@@ -647,6 +680,11 @@ export default function ForecastPage() {
               what you still need to buy.
             </p>
           </div>
+
+          <VoiceInventoryInput
+            knownItems={sessionIngredients}
+            onConfirm={handleVoiceInventoryConfirm}
+          />
 
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             {sessionIngredients.map((item) => (

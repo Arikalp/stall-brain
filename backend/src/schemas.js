@@ -279,6 +279,144 @@ export const EnrichedForecastResultSchema = ForecastResultSchema.extend({
   financials: PlanFinancialsSchema.optional(),
 })
 
+/** Voice inventory parsing schemas (T3.1). */
+export const VOICE_UNITS = ['kg', 'g', 'litres', 'pieces', 'packets', 'dozen']
+
+export const VoiceInventoryRequestSchema = z.object({
+  transcript: z.string().trim().min(1).max(500),
+  knownItems: z.array(z.string().min(1)).default([]),
+})
+
+// Transform-free so it works cleanly with llm.withStructuredOutput().
+export const ParsedVoiceItemSchema = z.object({
+  item: z.string().min(1),
+  quantity: z.number().nonnegative(),
+  unit: z.enum(['kg', 'g', 'litres', 'pieces', 'packets', 'dozen']),
+})
+
+export const VoiceInventoryParseSchema = z.object({
+  items: z.array(ParsedVoiceItemSchema),
+})
+
+const UNIT_SYNONYMS = {
+  kg: 'kg',
+  kilo: 'kg',
+  kilos: 'kg',
+  kilogram: 'kg',
+  kilograms: 'kg',
+  किलो: 'kg',
+  किग्रा: 'kg',
+  g: 'g',
+  gm: 'g',
+  gms: 'g',
+  gram: 'g',
+  grams: 'g',
+  ग्राम: 'g',
+  litre: 'litres',
+  litres: 'litres',
+  liter: 'litres',
+  liters: 'litres',
+  l: 'litres',
+  लीटर: 'litres',
+  piece: 'pieces',
+  pieces: 'pieces',
+  pcs: 'pieces',
+  pc: 'pieces',
+  nag: 'pieces',
+  पीस: 'pieces',
+  नग: 'pieces',
+  packet: 'packets',
+  packets: 'packets',
+  pkt: 'packets',
+  pkts: 'packets',
+  पैकेट: 'packets',
+  dozen: 'dozen',
+  dozens: 'dozen',
+  darjan: 'dozen',
+  दर्जन: 'dozen',
+}
+
+const HINDI_ITEM_ALIASES = {
+  आलू: 'aloo',
+  aaloo: 'aloo',
+  छोले: 'chhole',
+  पूरी: 'puri',
+  इमली: 'imli chutney',
+  'इमली चटनी': 'imli chutney',
+  सेव: 'sev',
+  दही: 'dahi',
+  दूध: 'milk',
+  doodh: 'milk',
+  चीनी: 'sugar',
+  cheeni: 'sugar',
+  shakkar: 'sugar',
+  'चाय पत्ती': 'tea leaves',
+  'chai patti': 'tea leaves',
+  patti: 'tea leaves',
+  कप: 'cups',
+  सिलेंडर: 'gas cylinders',
+  cylinder: 'gas cylinders',
+  भुट्टा: 'corn cobs',
+  bhutta: 'corn cobs',
+  मक्का: 'corn cobs',
+  मक्खन: 'butter',
+  makkhan: 'butter',
+  मसाला: 'masala',
+  कोयला: 'charcoal',
+  koyla: 'charcoal',
+  गुब्बारे: 'balloons',
+  gubbare: 'balloons',
+  गुलाब: 'roses',
+  gulab: 'roses',
+  गेंदा: 'marigold',
+  genda: 'marigold',
+  बर्फ: 'ice',
+  baraf: 'ice',
+  गन्ना: 'sugarcane',
+  ganna: 'sugarcane',
+  फल: 'seasonal fruits',
+  चिप्स: 'chips',
+  मठरी: 'mathi',
+}
+
+/**
+ * Normalizes unit synonyms, string quantities, and known-item matching on raw
+ * LLM voice-parse output before strict Zod validation.
+ */
+export function normalizeVoiceInventory(raw, knownItems = []) {
+  if (!raw || typeof raw !== 'object') return raw
+  const items = Array.isArray(raw.items) ? raw.items : []
+  const knownMap = new Map(
+    knownItems.map((name) => [String(name).trim().toLowerCase(), String(name).trim()]),
+  )
+
+  return {
+    items: items
+      .filter((entry) => entry && typeof entry === 'object')
+      .map((entry) => {
+        const rawItem = String(entry.item ?? '').trim()
+        const lower = rawItem.toLowerCase()
+        const alias = HINDI_ITEM_ALIASES[lower] ?? HINDI_ITEM_ALIASES[rawItem] ?? lower
+        const matchedKnown = knownMap.get(lower) ?? knownMap.get(alias)
+
+        const rawUnit = String(entry.unit ?? 'kg').trim().toLowerCase()
+        const normalizedUnit = UNIT_SYNONYMS[rawUnit] ?? 'kg'
+
+        const qty =
+          typeof entry.quantity === 'string'
+            ? Number.parseFloat(entry.quantity)
+            : Number(entry.quantity)
+
+        return {
+          item: matchedKnown ?? (HINDI_ITEM_ALIASES[rawItem] ?? rawItem),
+          quantity: Number.isFinite(qty) && qty >= 0 ? qty : 0,
+          unit: VOICE_UNITS.includes(normalizedUnit) ? normalizedUnit : 'kg',
+        }
+      })
+      .filter((entry) => entry.item.length > 0),
+  }
+}
+
 /**
  * Normalizes common LLM output quirks before strict validation:
  * "12" -> 12 for expectedCustomers, "high" -> "High", "ESSENTIAL" -> "essential",

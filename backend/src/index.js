@@ -7,6 +7,7 @@ import { initFirebaseAdmin } from './middleware/auth.js'
 import { forecastRouter } from './routes/forecast.js'
 import { logsRouter } from './routes/logs.js'
 import { profileRouter } from './routes/profile.js'
+import { voiceRouter } from './routes/voice.js'
 
 export function createApp() {
   const app = express()
@@ -37,6 +38,7 @@ export function createApp() {
   app.use('/api', forecastRouter)
   app.use('/api', logsRouter)
   app.use('/api', profileRouter)
+  app.use('/api', voiceRouter)
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'NOT_FOUND', message: 'Unknown endpoint.' })

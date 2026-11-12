@@ -1,4 +1,5 @@
-import { IndianRupee, Lightbulb, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { IndianRupee, Lightbulb, RefreshCw, Square, TrendingDown, TrendingUp, Volume2 } from 'lucide-react'
 
 const priorityOrder = {
   essential: 0,
@@ -42,6 +43,18 @@ export default function ForecastOutput({
   onToggleHindi,
   onRegenerate,
 }) {
+  const [speaking, setSpeaking] = useState(false)
+  const speechSupported =
+    typeof window !== 'undefined' && 'speechSynthesis' in window
+
+  useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel()
+      }
+    }
+  }, [forecast])
+
   const confidenceStyles = getConfidenceStyles(forecast.confidenceLevel)
   const procurementList = [...(forecast.procurementList || [])].sort((a, b) => {
     return (priorityOrder[a.priority] ?? 3) - (priorityOrder[b.priority] ?? 3)
@@ -65,6 +78,47 @@ export default function ForecastOutput({
   const formatInr = (value) =>
     Number.isFinite(Number(value)) ? `₹${Math.round(Number(value)).toLocaleString('en-IN')}` : '--'
 
+  const handleToggleSpeak = () => {
+    if (!speechSupported) return
+    const synth = window.speechSynthesis
+
+    if (speaking) {
+      synth.cancel()
+      setSpeaking(false)
+      return
+    }
+
+    synth.cancel()
+    const buyText = procurementList.length
+      ? `आज खरीदना है: ${procurementList
+          .slice(0, 5)
+          .map((item) => `${item.item} ${item.toBuy}`)
+          .join(', ')}।`
+      : ''
+    const spokenText = [
+      forecast.hindiSummary || forecast.summary,
+      buyText,
+      adviceHi,
+    ]
+      .filter(Boolean)
+      .join(' ')
+
+    const utterance = new SpeechSynthesisUtterance(spokenText)
+    utterance.lang = 'hi-IN'
+    utterance.rate = 0.95
+    const voices = synth.getVoices?.() ?? []
+    const hiVoice = voices.find((voice) =>
+      voice.lang?.toLowerCase().startsWith('hi'),
+    )
+    if (hiVoice) {
+      utterance.voice = hiVoice
+    }
+    utterance.onend = () => setSpeaking(false)
+    utterance.onerror = () => setSpeaking(false)
+    setSpeaking(true)
+    synth.speak(utterance)
+  }
+
   return (
     <section className="mt-8">
       <div className="rounded-3xl border border-(--color-border) border-l-[3px] border-l-(--color-primary) bg-(--color-bg-card) p-6 shadow-[0_0_40px_var(--color-primary-glow)]">
@@ -77,7 +131,21 @@ export default function ForecastOutput({
               {summaryText}
             </h2>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {speechSupported ? (
+              <button
+                type="button"
+                onClick={handleToggleSpeak}
+                className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                  speaking
+                    ? 'border-(--color-danger) bg-[rgba(248,113,113,0.15)] text-(--color-danger)'
+                    : 'border-(--color-primary) bg-[rgba(250,204,21,0.12)] text-(--color-text-primary) hover:bg-[rgba(250,204,21,0.2)]'
+                }`}
+              >
+                {speaking ? <Square size={14} /> : <Volume2 size={16} />}
+                {speaking ? 'रोकें (Stop)' : 'सुनें (Listen)'}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={onToggleHindi}
