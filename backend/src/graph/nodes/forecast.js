@@ -4,6 +4,12 @@ import {
   MULTIPLIER_BOUNDS,
   stallBaselines,
 } from '../../data/baselines.js'
+import { effectiveFactor } from '../../learning/bias.js'
+import {
+  computePlanFinancials,
+  optimizeDraftForBudget,
+  resolveItemPricing,
+} from '../../utils/economics.js'
 
 /** Clamps a demand multiplier to a sane range so bad signals can't explode it. */
 export function clampMultiplier(value) {
@@ -62,6 +68,10 @@ export function getBaselineEntry(item, stallType) {
  *   combined   = weather x event x weekday x festival x match  (clamped)
  *   totalNeeded = baseline x combined x bias[item]
  *   toBuy      = max(0, totalNeeded - alreadyHave)
+ *
+ * When `budgetInr` is set and unconstrained cost exceeds the cap,
+ * `optimizeDraftForBudget` prioritizes high-margin and high-demand items so
+ * total cost stays within `budgetInr` (T3.2).
  */
 export function computeDraftPlan({
   stallType,
@@ -70,6 +80,9 @@ export function computeDraftPlan({
   multiplier,
   signals,
   bias,
+  budgetInr = null,
+  itemPrices = {},
+  date = null,
 }) {
   const festival = festivalFactor(signals)
   const match = matchFactor(signals)
@@ -80,6 +93,7 @@ export function computeDraftPlan({
       festival *
       match,
   )
+  const weekday = date ? new Date(`${date}T00:00:00+05:30`).getDay() : null
 
   const draftItems = []
   const sufficientStockItems = []
@@ -87,12 +101,17 @@ export function computeDraftPlan({
   for (const item of items) {
     const entry = getBaselineEntry(item, stallType)
     const stock = inventory?.[item] ?? { quantity: 0, unit: entry.unit }
-    const biasFactor = Number(bias?.[item])
+    const rawBias = bias?.[item]
+    const biasFactor =
+      rawBias && typeof rawBias === 'object'
+        ? effectiveFactor(rawBias, weekday)
+        : Number.isFinite(Number(rawBias))
+          ? Number(rawBias)
+          : 1
 
     const alreadyHave =
       convertToUnit(stock.quantity, stock.unit, entry.unit) ?? stock.quantity
-    const totalNeeded =
-      entry.baseline * combined * (Number.isFinite(biasFactor) ? biasFactor : 1)
+    const totalNeeded = entry.baseline * combined * biasFactor
     const toBuy = Math.max(0, totalNeeded - alreadyHave)
 
     if (toBuy <= 0) {
@@ -100,23 +119,67 @@ export function computeDraftPlan({
       continue
     }
 
+    const pricing = resolveItemPricing(item, {
+      vendorPrices: itemPrices,
+      signalPrices: signals?.prices,
+    })
+
     draftItems.push({
       item,
       unit: entry.unit,
       baseline: entry.baseline,
-      bias: Number.isFinite(biasFactor) ? biasFactor : 1,
+      bias: round3(biasFactor),
       totalNeeded: round2(totalNeeded),
       alreadyHave: round2(alreadyHave),
       toBuy: round2(toBuy),
+      _pricing: pricing,
     })
   }
 
+  // Run profit-maximizing budget optimizer if a daily budget cap is active.
+  const rankedInput = draftItems.map((d) => ({
+    ...d,
+    buyPrice: d._pricing.buyPrice,
+    sellPrice: d._pricing.sellPrice,
+    unitMargin: d._pricing.unitMargin,
+    roiRatio: d._pricing.roiRatio,
+  }))
+  const optimized = optimizeDraftForBudget(rankedInput, budgetInr)
+
+  // Keep each draft item clean (the 7 canonical numeric fields) so callers and
+  // unit tests see a consistent shape; economics live in `financials`.
+  const cleanItems = optimized.items.map((d) => ({
+    item: d.item,
+    unit: d.unit,
+    baseline: d.baseline,
+    bias: d.bias,
+    totalNeeded: d.totalNeeded,
+    alreadyHave: d.alreadyHave,
+    toBuy: d.toBuy,
+  }))
+
+  const financials = computePlanFinancials({
+    procurementList: cleanItems,
+    sufficientStockItems,
+    draftPlan: { budgetConstrained: optimized.budgetConstrained },
+    vendorPrices: itemPrices,
+    signalPrices: signals?.prices,
+    budgetInr,
+  })
+
   return {
-    items: draftItems,
+    items: cleanItems,
     sufficientStockItems,
     expectedCustomers: Math.round(150 * combined),
     combinedMultiplier: round3(combined),
     factors: { weather: multiplier?.weather ?? 1, event: multiplier?.event ?? 1, weekday: multiplier?.weekday ?? 1, festival, match },
+    budgetInr: financials.budgetInr,
+    totalEstimatedCost: financials.totalCostInr,
+    totalEstimatedRevenue: financials.expectedRevenueInr,
+    totalEstimatedProfit: financials.expectedProfitInr,
+    budgetConstrained: financials.budgetConstrained,
+    pricingIsMock: financials.isMockPricing,
+    financials,
   }
 }
 
@@ -144,7 +207,14 @@ export async function forecastDemand(state) {
     multiplier: state.multiplier,
     signals: state.signals,
     bias: state.bias,
+    budgetInr: state.budgetInr ?? null,
+    itemPrices: state.itemPrices ?? {},
+    date: state.date ?? null,
   })
+
+  const budgetNote = draftPlan.budgetConstrained
+    ? ` (optimized for ₹${draftPlan.budgetInr} budget -> est. cost ₹${draftPlan.totalEstimatedCost}, profit ₹${draftPlan.totalEstimatedProfit})`
+    : ` (est. cost ₹${draftPlan.totalEstimatedCost}, revenue ₹${draftPlan.totalEstimatedRevenue})`
 
   return {
     baseline: Object.fromEntries(
@@ -153,7 +223,7 @@ export async function forecastDemand(state) {
     draftPlan,
     trace: [
       `Demand multiplier x${combined} -> clamped x${draftPlan.combinedMultiplier}`,
-      `Deterministic draft: ${draftPlan.items.length} item(s) to buy, ${draftPlan.sufficientStockItems.length} sufficient`,
+      `Deterministic draft: ${draftPlan.items.length} item(s) to buy, ${draftPlan.sufficientStockItems.length} sufficient${budgetNote}`,
     ],
   }
 }

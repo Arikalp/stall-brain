@@ -9,13 +9,30 @@ import { Check, RotateCcw } from 'lucide-react'
  * Remount with a new `key` when a regenerated plan arrives so the editable
  * values reset to the new plan.
  */
+function extractNumeric(text) {
+  if (typeof text === 'number') return Number.isFinite(text) ? String(text) : ''
+  const match = String(text ?? '').trim().match(/^(-?\d+(?:\.\d+)?)/)
+  return match ? match[1] : ''
+}
+
 export default function PlanEditor({ plan, busy = false, onApprove, onReject }) {
   const items = plan?.procurementList ?? []
+  const fin = plan?.financials
 
   const [quantities, setQuantities] = useState(() =>
-    Object.fromEntries(items.map((item) => [item.item, String(item.toBuy ?? '')])),
+    Object.fromEntries(items.map((item) => [item.item, extractNumeric(item.toBuy)])),
   )
   const [validationError, setValidationError] = useState('')
+
+  const liveCost = items.reduce((sum, item) => {
+    const qty = Number(quantities[item.item])
+    const buyPrice = fin?.items?.[item.item]?.buyPrice
+    if (!Number.isFinite(qty) || qty < 0 || buyPrice == null) return sum
+    return sum + qty * buyPrice
+  }, 0)
+  const roundedLiveCost = Math.round(liveCost * 100) / 100
+  const budgetCap = fin?.budgetInr ?? null
+  const overBudget = budgetCap != null && roundedLiveCost > budgetCap + 0.5
 
   const handleQuantityChange = (itemName, value) => {
     setValidationError('')
@@ -34,10 +51,13 @@ export default function PlanEditor({ plan, busy = false, onApprove, onReject }) 
 
     const editedPlan = {
       ...plan,
-      procurementList: items.map((item) => ({
-        ...item,
-        toBuy: (quantities[item.item] ?? '').trim(),
-      })),
+      procurementList: items.map((item) => {
+        const raw = (quantities[item.item] ?? '').trim()
+        return {
+          ...item,
+          toBuy: item.unit ? `${raw} ${item.unit}` : raw,
+        }
+      }),
     }
     onApprove?.(editedPlan)
   }
@@ -56,9 +76,23 @@ export default function PlanEditor({ plan, busy = false, onApprove, onReject }) 
             ask it to try again.
           </p>
         </div>
-        <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-bg-input)] px-3 py-1 text-xs font-semibold text-[var(--color-text-secondary)]">
-          {plan.expectedCustomers} customers expected
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          {fin ? (
+            <span
+              className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                overBudget
+                  ? 'border-[var(--color-danger)] bg-[rgba(248,113,113,0.15)] text-[var(--color-danger)]'
+                  : 'border-[var(--color-success)] bg-[rgba(74,222,128,0.15)] text-[var(--color-success)]'
+              }`}
+            >
+              Est. cost ₹{roundedLiveCost}
+              {budgetCap != null ? ` / ₹${budgetCap} budget` : ''}
+            </span>
+          ) : null}
+          <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-bg-input)] px-3 py-1 text-xs font-semibold text-[var(--color-text-secondary)]">
+            {plan.expectedCustomers} customers expected
+          </span>
+        </div>
       </div>
 
       <div className="mt-4 space-y-3">

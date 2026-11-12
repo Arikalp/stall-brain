@@ -8,6 +8,7 @@ import { stalls } from '../data/stalls'
 import {
   loadProfile,
   normalizeIngredients,
+  normalizeItemPrices,
   saveProfile,
 } from '../utils/profileStorage'
 import { fetchServerProfile, pushServerProfile } from '../utils/profileApi'
@@ -23,6 +24,10 @@ export default function ProfilePage() {
     storedProfile?.stallType ?? null,
   )
   const [items, setItems] = useState(() => storedProfile?.ingredients ?? [])
+  const [dailyBudgetInr, setDailyBudgetInr] = useState(() =>
+    storedProfile?.dailyBudgetInr != null ? String(storedProfile.dailyBudgetInr) : '',
+  )
+  const [itemPrices, setItemPrices] = useState(() => storedProfile?.itemPrices ?? {})
   const [newItem, setNewItem] = useState('')
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
@@ -49,6 +54,10 @@ export default function ProfilePage() {
         if (!cached) return
         setSelectedStallId(cached.stallType)
         setItems(cached.ingredients)
+        setDailyBudgetInr(
+          cached.dailyBudgetInr != null ? String(cached.dailyBudgetInr) : '',
+        )
+        setItemPrices(cached.itemPrices ?? {})
       })
       .catch(() => {
         // Offline or backend down: the vendor can still fill the form manually.
@@ -67,12 +76,47 @@ export default function ProfilePage() {
   }
 
   const handleItemChange = (index, value) => {
+    const oldName = items[index]
     setItems((prev) => {
       const next = [...prev]
       next[index] = value
       return next
     })
+    if (oldName && oldName !== value && itemPrices[oldName]) {
+      setItemPrices((prev) => {
+        const next = { ...prev }
+        const existing = next[oldName]
+        delete next[oldName]
+        if (value.trim()) next[value.trim()] = existing
+        return next
+      })
+    }
     setError('')
+  }
+
+  const handlePriceChange = (itemName, field, value) => {
+    const key = itemName.trim()
+    if (!key) return
+    setItemPrices((prev) => {
+      const current = prev[key] ?? {}
+      const trimmed = value.trim()
+      if (trimmed === '') {
+        const nextEntry = { ...current }
+        delete nextEntry[field]
+        if (Object.keys(nextEntry).length === 0) {
+          const next = { ...prev }
+          delete next[key]
+          return next
+        }
+        return { ...prev, [key]: nextEntry }
+      }
+      const num = Number(trimmed)
+      if (!Number.isFinite(num) || num < 0) return prev
+      return {
+        ...prev,
+        [key]: { ...current, [field]: num },
+      }
+    })
   }
 
   const handleRemoveItem = (index) => {
@@ -106,11 +150,29 @@ export default function ProfilePage() {
       return
     }
 
+    const parsedBudget =
+      dailyBudgetInr.trim() === '' ? null : Number(dailyBudgetInr)
+    if (
+      parsedBudget !== null &&
+      (!Number.isFinite(parsedBudget) || parsedBudget < 0)
+    ) {
+      setError('Daily budget must be 0 or higher.')
+      return
+    }
+
+    const activePrices = Object.fromEntries(
+      Object.entries(normalizeItemPrices(itemPrices)).filter(([name]) =>
+        cleanedItems.includes(name),
+      ),
+    )
+
     const saved = saveProfile({
       stallType: selectedStall.id,
       stallLabel: selectedStall.name,
       stallEmoji: selectedStall.emoji,
       ingredients: cleanedItems,
+      dailyBudgetInr: parsedBudget,
+      itemPrices: activePrices,
     })
 
     if (!saved) {
@@ -215,7 +277,7 @@ export default function ProfilePage() {
                   items.map((item, index) => (
                     <div
                       key={`${item}-${index}`}
-                      className="flex items-center gap-3 rounded-xl border border-(--color-border) bg-(--color-bg-input) px-3 py-2 focus-within:border-(--color-border-focus)"
+                      className="flex flex-wrap items-center gap-3 rounded-xl border border-(--color-border) bg-(--color-bg-input) px-3 py-2 focus-within:border-(--color-border-focus)"
                     >
                       <GripVertical className="h-4 w-4 text-(--color-text-muted)" />
                       <input
@@ -223,8 +285,34 @@ export default function ProfilePage() {
                         onChange={(event) =>
                           handleItemChange(index, event.target.value)
                         }
-                        className="flex-1 bg-transparent text-sm text-(--color-text-primary) outline-none"
+                        className="min-w-[140px] flex-1 bg-transparent text-sm text-(--color-text-primary) outline-none"
                       />
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={itemPrices[item.trim()]?.buyPrice ?? ''}
+                          onChange={(event) =>
+                            handlePriceChange(item, 'buyPrice', event.target.value)
+                          }
+                          placeholder="Buy ₹"
+                          aria-label={`Buy price for ${item}`}
+                          className="w-24 rounded-lg border border-(--color-border) bg-(--color-bg-card) px-2.5 py-1 text-xs text-(--color-text-primary) placeholder:text-(--color-text-muted) outline-none focus:border-(--color-border-focus)"
+                        />
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={itemPrices[item.trim()]?.sellPrice ?? ''}
+                          onChange={(event) =>
+                            handlePriceChange(item, 'sellPrice', event.target.value)
+                          }
+                          placeholder="Sell ₹"
+                          aria-label={`Sell price for ${item}`}
+                          className="w-24 rounded-lg border border-(--color-border) bg-(--color-bg-card) px-2.5 py-1 text-xs text-(--color-text-primary) placeholder:text-(--color-text-muted) outline-none focus:border-(--color-border-focus)"
+                        />
+                      </div>
                       <button
                         type="button"
                         onClick={() => handleRemoveItem(index)}
@@ -263,6 +351,35 @@ export default function ProfilePage() {
                   <Plus className="h-4 w-4" />
                   Add Item
                 </button>
+              </div>
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-(--color-border) bg-(--color-bg-card) p-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <label
+                    htmlFor="daily-budget-input"
+                    className="text-sm font-semibold text-(--color-text-primary)"
+                  >
+                    Daily Budget Cap (₹) — optional
+                  </label>
+                  <p className="mt-1 text-xs text-(--color-text-secondary)">
+                    When set, the agent maximizes expected profit while staying within this budget. Leave buy/sell ₹ blank to use Lucknow mandi defaults.
+                  </p>
+                </div>
+                <input
+                  id="daily-budget-input"
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={dailyBudgetInr}
+                  onChange={(event) => {
+                    setDailyBudgetInr(event.target.value)
+                    setError('')
+                  }}
+                  placeholder="No cap (e.g. 1500)"
+                  className="w-48 rounded-xl border border-(--color-border) bg-(--color-bg-input) px-3 py-2 text-sm text-(--color-text-primary) placeholder:text-(--color-text-muted) outline-none focus:border-(--color-border-focus)"
+                />
               </div>
             </div>
           </section>

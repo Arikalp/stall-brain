@@ -1,4 +1,5 @@
 import { ValidationResultSchema } from '../../schemas.js'
+import { computePlanFinancials } from '../../utils/economics.js'
 
 /** Maximum number of planner attempts before falling back to the draft. */
 export const MAX_PLAN_RETRIES = 3
@@ -39,6 +40,7 @@ export function validatePlan({
   sessionIngredients,
   budgetInr,
   prices,
+  itemPrices,
   signalErrors,
 }) {
   const errors = []
@@ -121,9 +123,21 @@ export function validatePlan({
     }
   }
 
-  // 4. Budget: enforced once buy prices exist (T3.2); `prices` is reserved for it.
-  if (budgetInr != null && Array.isArray(prices) && prices.length > 0) {
-    // Cost = sum(toBuy * pricePerUnit); to be wired with mandi prices in T3.2.
+  // 4. Budget: enforce daily budget cap when set (T3.2).
+  if (budgetInr != null && Number.isFinite(Number(budgetInr))) {
+    const financials = computePlanFinancials({
+      procurementList: plan.procurementList ?? [],
+      sufficientStockItems: plan.sufficientStockItems ?? [],
+      draftPlan,
+      vendorPrices: itemPrices,
+      signalPrices: prices,
+      budgetInr,
+    })
+    if (!financials.withinBudget) {
+      errors.push(
+        `Total procurement cost (₹${financials.totalCostInr}) exceeds daily budget (₹${financials.budgetInr}). Reduce quantities of lower-margin items to stay within ₹${financials.budgetInr}.`,
+      )
+    }
   }
 
   // 5. Perishable shelf-life caps arrive with T3.3 ingredient data.
@@ -136,8 +150,30 @@ export function validatePlan({
  * shape the frontend consumes, marked low-confidence. Used after 3 failed
  * planner attempts (routing rule from the plan).
  */
-export function buildFallbackPlan(draftPlan, multiplier) {
+export function buildFallbackPlan(
+  draftPlan,
+  multiplier,
+  { itemPrices = {}, prices = [], budgetInr = null } = {},
+) {
   const draft = draftPlan ?? { items: [], sufficientStockItems: [] }
+  const procurementList = draft.items.map((item) => ({
+    item: item.item,
+    totalNeeded: `${item.totalNeeded} ${item.unit}`,
+    alreadyHave: `${item.alreadyHave} ${item.unit}`,
+    toBuy: `${item.toBuy} ${item.unit}`,
+    unit: item.unit,
+    priority: item.toBuy >= item.baseline * 0.5 ? 'essential' : 'moderate',
+    note: 'Deterministic fallback plan.',
+  }))
+
+  const financials = computePlanFinancials({
+    procurementList,
+    sufficientStockItems: draft.sufficientStockItems ?? [],
+    draftPlan: draft,
+    vendorPrices: itemPrices,
+    signalPrices: prices,
+    budgetInr: budgetInr ?? draft.budgetInr ?? null,
+  })
 
   return {
     summary:
@@ -149,18 +185,11 @@ export function buildFallbackPlan(draftPlan, multiplier) {
     confidenceLevel: 'Low',
     confidenceReason:
       'Computed by code only; the LLM plan failed validation 3 times.',
-    procurementList: draft.items.map((item) => ({
-      item: item.item,
-      totalNeeded: `${item.totalNeeded} ${item.unit}`,
-      alreadyHave: `${item.alreadyHave} ${item.unit}`,
-      toBuy: `${item.toBuy} ${item.unit}`,
-      unit: item.unit,
-      priority: item.toBuy >= item.baseline * 0.5 ? 'essential' : 'moderate',
-      note: 'Deterministic fallback plan.',
-    })),
+    procurementList,
     sufficientStockItems: draft.sufficientStockItems,
     specialAdvice:
       'Double-check quantities yourself today. || आज मात्रा खुद जांच लें।',
+    financials,
   }
 }
 
@@ -175,13 +204,26 @@ export async function validate(state) {
     sessionIngredients: state.sessionIngredients,
     budgetInr: state.budgetInr,
     prices: state.signals?.prices,
+    itemPrices: state.itemPrices,
     signalErrors: state.signals?.errors,
   })
 
   if (result.valid) {
+    const financials = computePlanFinancials({
+      procurementList: state.plan?.procurementList ?? [],
+      sufficientStockItems: state.plan?.sufficientStockItems ?? [],
+      draftPlan: state.draftPlan,
+      vendorPrices: state.itemPrices,
+      signalPrices: state.signals?.prices,
+      budgetInr: state.budgetInr,
+    })
     return {
+      plan: {
+        ...state.plan,
+        financials,
+      },
       validationErrors: [],
-      trace: [`Validator: plan accepted`],
+      trace: [`Validator: plan accepted (est. cost ₹${financials.totalCostInr}, profit ₹${financials.expectedProfitInr})`],
     }
   }
 
@@ -190,7 +232,11 @@ export async function validate(state) {
   if (nextRetry >= MAX_PLAN_RETRIES) {
     // Give up on the LLM: ship the deterministic draft, low confidence.
     return {
-      plan: buildFallbackPlan(state.draftPlan, state.multiplier),
+      plan: buildFallbackPlan(state.draftPlan, state.multiplier, {
+        itemPrices: state.itemPrices,
+        prices: state.signals?.prices,
+        budgetInr: state.budgetInr,
+      }),
       validationErrors: [],
       trace: [
         `Validator: rejected plan ${nextRetry}x (${result.errors.join('; ')})`,

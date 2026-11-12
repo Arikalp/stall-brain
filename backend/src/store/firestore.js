@@ -53,13 +53,16 @@ export async function getVendorContext(vendorId, { db } = {}) {
     ])
 
     const history = logsSnap.docs.map((doc) => ({ date: doc.id, ...doc.data() }))
-    const bias = vendorSnap.exists ? (vendorSnap.data().biasFactors ?? {}) : {}
+    const vendorData = vendorSnap.exists ? vendorSnap.data() : {}
+    const bias = vendorData.biasFactors ?? {}
+    const storedProfile = vendorData.profile ?? null
 
-    return { history, bias }
+    return { history, bias, storedProfile }
   } catch (error) {
     return {
       history: [],
       bias: {},
+      storedProfile: null,
       error: `Firestore vendor context unavailable: ${error?.message ?? error}`,
     }
   }

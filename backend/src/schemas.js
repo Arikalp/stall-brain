@@ -14,12 +14,20 @@ export const InventoryEntrySchema = z.object({
   unit: z.string().min(1).default('units'),
 })
 
+/** Per-item wholesale buy price & realized sell price in INR (T3.2). */
+export const ItemPriceSchema = z.object({
+  buyPrice: z.coerce.number().min(0).nullable().optional(),
+  sellPrice: z.coerce.number().min(0).nullable().optional(),
+})
+
 /** Matches src/utils/profileStorage.js on the frontend. */
 export const UserProfileSchema = z.object({
   stallType: z.string().min(1),
   stallLabel: z.string().min(1),
   stallEmoji: z.string().min(1),
   ingredients: z.array(z.string().min(1)).default([]),
+  dailyBudgetInr: z.coerce.number().nonnegative().nullable().optional(),
+  itemPrices: z.record(z.string().min(1), ItemPriceSchema).optional(),
 })
 
 /** What the vendor's current session looks like (localStorage today, Firestore later). */
@@ -27,6 +35,7 @@ export const ForecastSessionSchema = z.object({
   sessionIngredients: z.array(z.string().min(1)).default([]),
   inventory: z.record(z.string().min(1), InventoryEntrySchema).default({}),
   budgetInr: z.number().nonnegative().nullable().optional(),
+  itemPrices: z.record(z.string().min(1), ItemPriceSchema).optional(),
 })
 
 /**
@@ -121,6 +130,8 @@ export const VendorProfileSchema = z.object({
   stallLabel: z.string().min(1),
   stallEmoji: z.string().min(1),
   ingredients: z.array(z.string().min(1)).default([]),
+  dailyBudgetInr: z.coerce.number().nonnegative().nullable().optional(),
+  itemPrices: z.record(z.string().min(1), ItemPriceSchema).optional(),
 })
 
 /** Validator node output (the code-based critic). */
@@ -153,6 +164,14 @@ export const DraftPlanItemSchema = z.object({
   totalNeeded: z.number().nonnegative(),
   alreadyHave: z.number().nonnegative(),
   toBuy: z.number().nonnegative(),
+  buyPrice: z.number().nonnegative().nullable().optional(),
+  sellPrice: z.number().nonnegative().nullable().optional(),
+  unitMargin: z.number().nullable().optional(),
+  estimatedCost: z.number().nonnegative().optional(),
+  estimatedRevenue: z.number().nonnegative().optional(),
+  estimatedProfit: z.number().optional(),
+  budgetAdjusted: z.boolean().optional(),
+  priceIsMock: z.boolean().optional(),
 })
 
 export const DraftPlanSchema = z.object({
@@ -162,6 +181,12 @@ export const DraftPlanSchema = z.object({
   combinedMultiplier: z.number().optional(),
   /** Component factors that produced combinedMultiplier. */
   factors: z.record(z.string().min(1), z.number()).optional(),
+  budgetInr: z.number().nonnegative().nullable().optional(),
+  totalEstimatedCost: z.number().nonnegative().optional(),
+  totalEstimatedRevenue: z.number().nonnegative().optional(),
+  totalEstimatedProfit: z.number().optional(),
+  budgetConstrained: z.boolean().optional(),
+  pricingIsMock: z.boolean().optional(),
 })
 
 const weatherShape = {
@@ -194,6 +219,8 @@ export const ForecastRequestSchema = z.object({
   weeklyMultiplier: z.coerce.number().optional(),
   eventMultiplier: z.coerce.number().optional(),
   demandMultiplier: z.coerce.number().optional(),
+  budgetInr: z.coerce.number().nonnegative().nullable().optional(),
+  itemPrices: z.record(z.string().min(1), ItemPriceSchema).optional(),
 })
 
 // NOTE: This schema must stay transform-free (no coerce/preprocess/default) so it
@@ -221,6 +248,35 @@ export const ForecastResultSchema = z.object({
   procurementList: z.array(ProcurementItemSchema),
   sufficientStockItems: z.array(z.string().min(1)),
   specialAdvice: z.string().min(1),
+})
+
+/** Code-computed financial summary attached after LLM structured output (T3.2). */
+export const PlanFinancialsSchema = z.object({
+  totalCostInr: z.number().nonnegative(),
+  expectedRevenueInr: z.number().nonnegative(),
+  expectedProfitInr: z.number(),
+  marginPercent: z.number(),
+  budgetInr: z.number().nonnegative().nullable(),
+  withinBudget: z.boolean(),
+  budgetConstrained: z.boolean().default(false),
+  isMockPricing: z.boolean().default(false),
+  items: z
+    .record(
+      z.string().min(1),
+      z.object({
+        buyPrice: z.number().nonnegative().nullable(),
+        sellPrice: z.number().nonnegative().nullable(),
+        costInr: z.number().nonnegative(),
+        revenueInr: z.number().nonnegative(),
+        profitInr: z.number(),
+        isMock: z.boolean(),
+      }),
+    )
+    .default({}),
+})
+
+export const EnrichedForecastResultSchema = ForecastResultSchema.extend({
+  financials: PlanFinancialsSchema.optional(),
 })
 
 /**

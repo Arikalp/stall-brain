@@ -13,7 +13,7 @@ import { getWeatherSignal } from '../utils/weatherLogic'
 import { requestForecastStream, resumeForecast } from '../utils/groqAgent'
 import PlanEditor from '../components/PlanEditor'
 import { getTodayInfo } from '../utils/dateTime'
-import { loadProfile } from '../utils/profileStorage'
+import { loadProfile, normalizeItemPrices } from '../utils/profileStorage'
 import { fetchRecentRuns } from '../utils/profileApi'
 import {
   createSessionFromProfile,
@@ -122,13 +122,27 @@ export default function ForecastPage() {
   const [profile] = useState(() => loadProfile())
   const dateInfo = useMemo(() => getTodayInfo(), [])
   const [initialSession] = useState(() => {
-    if (!profile) return { sessionIngredients: [], inventory: {} }
+    if (!profile) {
+      return {
+        sessionIngredients: [],
+        inventory: {},
+        budgetInr: null,
+        itemPrices: {},
+      }
+    }
     return loadForecastSession() ?? createSessionFromProfile(profile)
   })
   const [sessionIngredients, setSessionIngredients] = useState(
     initialSession.sessionIngredients,
   )
   const [inventory, setInventory] = useState(initialSession.inventory)
+  const [budgetInr, setBudgetInr] = useState(() =>
+    initialSession.budgetInr != null ? String(initialSession.budgetInr) : '',
+  )
+  const [itemPrices, setItemPrices] = useState(
+    () => initialSession.itemPrices ?? profile?.itemPrices ?? {},
+  )
+  const [showPriceInputs, setShowPriceInputs] = useState(false)
   const [newItem, setNewItem] = useState('')
   const [itemError, setItemError] = useState('')
   const sessionReady = Boolean(profile)
@@ -185,10 +199,21 @@ export default function ForecastPage() {
     eventMultiplier *
     weeklyMultiplier
 
+  const parsedBudgetInr = useMemo(() => {
+    if (budgetInr.trim() === '') return null
+    const num = Number(budgetInr)
+    return Number.isFinite(num) && num >= 0 ? num : null
+  }, [budgetInr])
+
   useEffect(() => {
     if (!sessionReady) return
-    saveForecastSession({ sessionIngredients, inventory })
-  }, [sessionIngredients, inventory, sessionReady])
+    saveForecastSession({
+      sessionIngredients,
+      inventory,
+      budgetInr: parsedBudgetInr,
+      itemPrices,
+    })
+  }, [sessionIngredients, inventory, parsedBudgetInr, itemPrices, sessionReady])
 
   useEffect(() => {
     if (!stall) return
@@ -306,6 +331,29 @@ export default function ForecastPage() {
     })
   }
 
+  const handlePriceChange = (itemName, field, value) => {
+    setItemPrices((prev) => {
+      const current = prev[itemName] ?? {}
+      const trimmed = value.trim()
+      if (trimmed === '') {
+        const nextEntry = { ...current }
+        delete nextEntry[field]
+        if (Object.keys(nextEntry).length === 0) {
+          const next = { ...prev }
+          delete next[itemName]
+          return next
+        }
+        return { ...prev, [itemName]: nextEntry }
+      }
+      const num = Number(trimmed)
+      if (!Number.isFinite(num) || num < 0) return prev
+      return {
+        ...prev,
+        [itemName]: { ...current, [field]: num },
+      }
+    })
+  }
+
   /** Shared handling for both round-trips: pause for approval, or finish. */
   const handleRunResponse = (result) => {
     if (result.status === 'PENDING_APPROVAL') {
@@ -382,6 +430,8 @@ export default function ForecastPage() {
           weeklyMultiplier,
           eventMultiplier,
           demandMultiplier: Number(demandMultiplier.toFixed(2)),
+          budgetInr: parsedBudgetInr,
+          itemPrices: normalizeItemPrices(itemPrices),
         },
         (step) => setLiveSteps((prev) => [...prev, step]),
       )
@@ -639,6 +689,87 @@ export default function ForecastPage() {
           <p className="mt-3 text-sm text-[var(--color-text-muted)]">
             You have stock for {stockCount} of {sessionIngredients.length} items
           </p>
+        </section>
+
+        <section className="mt-6 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <label
+                htmlFor="session-budget-input"
+                className="text-sm font-semibold text-[var(--color-text-primary)]"
+              >
+                Today&apos;s Budget Cap (₹) — optional
+              </label>
+              <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
+                Set a spending limit and the agent will prioritize high-margin items to maximize profit.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                id="session-budget-input"
+                type="number"
+                min="0"
+                step="any"
+                value={budgetInr}
+                onChange={(event) => setBudgetInr(event.target.value)}
+                placeholder="No budget cap"
+                className="w-40 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-input)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none focus:border-[var(--color-border-focus)]"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPriceInputs((prev) => !prev)}
+                className="rounded-full border border-[var(--color-border)] bg-transparent px-3 py-1.5 text-xs font-semibold text-[var(--color-text-secondary)] transition hover:bg-[var(--color-bg-card-hover)]"
+              >
+                {showPriceInputs ? 'Hide prices' : 'Edit buy / sell ₹'}
+              </button>
+            </div>
+          </div>
+
+          {showPriceInputs ? (
+            <div className="mt-4 space-y-2 border-t border-[var(--color-border)] pt-4">
+              <p className="text-xs text-[var(--color-text-muted)]">
+                Leave blank to use default Lucknow mandi mock prices (clearly marked in the forecast).
+              </p>
+              <div className="grid gap-2 md:grid-cols-2">
+                {sessionIngredients.map((item) => (
+                  <div
+                    key={`price-${item}`}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-input)] px-3 py-2"
+                  >
+                    <span className="text-xs font-semibold text-[var(--color-text-primary)]">
+                      {item}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={itemPrices?.[item]?.buyPrice ?? ''}
+                        onChange={(event) =>
+                          handlePriceChange(item, 'buyPrice', event.target.value)
+                        }
+                        placeholder="Buy ₹"
+                        aria-label={`Today buy price for ${item}`}
+                        className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-card)] px-2 py-1 text-xs text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none focus:border-[var(--color-border-focus)]"
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={itemPrices?.[item]?.sellPrice ?? ''}
+                        onChange={(event) =>
+                          handlePriceChange(item, 'sellPrice', event.target.value)
+                        }
+                        placeholder="Sell ₹"
+                        aria-label={`Today sell price for ${item}`}
+                        className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-card)] px-2 py-1 text-xs text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none focus:border-[var(--color-border-focus)]"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </section>
 
         <div className="mt-8">

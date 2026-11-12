@@ -1,3 +1,5 @@
+import { normalizeItemPrices } from './profileStorage'
+
 const SESSION_KEY = 'bazaarBrain_session'
 
 export const INVENTORY_UNITS = [
@@ -9,6 +11,12 @@ export const INVENTORY_UNITS = [
   'dozen',
 ]
 const DEFAULT_UNIT = INVENTORY_UNITS[0]
+
+function normalizeBudget(value) {
+  if (value == null || value === '') return null
+  const num = Number(value)
+  return Number.isFinite(num) && num >= 0 ? num : null
+}
 
 function normalizeIngredients(items) {
   if (!Array.isArray(items)) return []
@@ -64,6 +72,8 @@ export function createSessionFromProfile(profile) {
   return {
     sessionIngredients,
     inventory: buildInventoryForItems(sessionIngredients, {}),
+    budgetInr: normalizeBudget(profile?.dailyBudgetInr),
+    itemPrices: normalizeItemPrices(profile?.itemPrices),
   }
 }
 
@@ -81,13 +91,20 @@ export function loadForecastSession() {
     return {
       sessionIngredients,
       inventory,
+      budgetInr: normalizeBudget(parsed.budgetInr),
+      itemPrices: normalizeItemPrices(parsed.itemPrices),
     }
   } catch (error) {
     return null
   }
 }
 
-export function saveForecastSession({ sessionIngredients, inventory }) {
+export function saveForecastSession({
+  sessionIngredients,
+  inventory,
+  budgetInr,
+  itemPrices,
+}) {
   if (typeof window === 'undefined') return
   if (!Array.isArray(sessionIngredients)) return
 
@@ -102,6 +119,8 @@ export function saveForecastSession({ sessionIngredients, inventory }) {
     JSON.stringify({
       sessionIngredients: normalizedIngredients,
       inventory: normalizedInventory,
+      budgetInr: normalizeBudget(budgetInr),
+      itemPrices: normalizeItemPrices(itemPrices),
     }),
   )
 }

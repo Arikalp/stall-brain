@@ -7,6 +7,28 @@ export function normalizeIngredients(items) {
     .filter((item) => item.length > 0)
 }
 
+export function normalizeItemPrices(itemPrices) {
+  if (!itemPrices || typeof itemPrices !== 'object') return {}
+  return Object.entries(itemPrices).reduce((acc, [item, entry]) => {
+    if (typeof item !== 'string') return acc
+    const key = item.trim()
+    if (!key || !entry || typeof entry !== 'object') return acc
+    const buy = entry.buyPrice != null && entry.buyPrice !== '' ? Number(entry.buyPrice) : null
+    const sell = entry.sellPrice != null && entry.sellPrice !== '' ? Number(entry.sellPrice) : null
+    const clean = {}
+    if (buy != null && Number.isFinite(buy) && buy >= 0) clean.buyPrice = buy
+    if (sell != null && Number.isFinite(sell) && sell >= 0) clean.sellPrice = sell
+    if (Object.keys(clean).length > 0) acc[key] = clean
+    return acc
+  }, {})
+}
+
+function normalizeBudget(value) {
+  if (value == null || value === '') return null
+  const num = Number(value)
+  return Number.isFinite(num) && num >= 0 ? num : null
+}
+
 function normalizeProfile(profile) {
   if (!profile) return null
 
@@ -25,6 +47,8 @@ function normalizeProfile(profile) {
     stallLabel,
     stallEmoji,
     ingredients,
+    dailyBudgetInr: normalizeBudget(profile.dailyBudgetInr),
+    itemPrices: normalizeItemPrices(profile.itemPrices),
   }
 }
 

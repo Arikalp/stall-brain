@@ -1,4 +1,4 @@
-import { Lightbulb, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react'
+import { IndianRupee, Lightbulb, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react'
 
 const priorityOrder = {
   essential: 0,
@@ -61,6 +61,9 @@ export default function ForecastOutput({
 
   const trendUp = demandMultiplier >= 1.15
   const trendDown = demandMultiplier <= 0.9
+  const financials = forecast.financials ?? null
+  const formatInr = (value) =>
+    Number.isFinite(Number(value)) ? `₹${Math.round(Number(value)).toLocaleString('en-IN')}` : '--'
 
   return (
     <section className="mt-8">
@@ -134,6 +137,68 @@ export default function ForecastOutput({
           </div>
         </div>
 
+        {financials ? (
+          <div className="mt-6 rounded-2xl border border-(--color-border) bg-(--color-bg-input) p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <IndianRupee className="h-4 w-4 text-(--color-primary)" />
+                <h3 className="text-sm font-semibold uppercase tracking-[0.15em] text-(--color-text-secondary)">
+                  Estimated Cost, Revenue &amp; Profit
+                </h3>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {financials.budgetInr != null ? (
+                  <span
+                    className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                      financials.withinBudget
+                        ? 'border-[rgba(74,222,128,0.4)] bg-[rgba(74,222,128,0.15)] text-(--color-success)'
+                        : 'border-[rgba(248,113,113,0.4)] bg-[rgba(248,113,113,0.15)] text-(--color-danger)'
+                    }`}
+                  >
+                    {financials.withinBudget
+                      ? `Within ${formatInr(financials.budgetInr)} budget`
+                      : `Over ${formatInr(financials.budgetInr)} budget`}
+                  </span>
+                ) : null}
+                {financials.isMockPricing ? (
+                  <span className="rounded-full border border-[rgba(251,191,36,0.4)] bg-[rgba(251,191,36,0.12)] px-3 py-1 text-xs font-semibold text-(--color-warning)">
+                    Mock mandi prices (update in Profile)
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 sm:grid-cols-3">
+              <div className="rounded-xl border border-(--color-border) bg-(--color-bg-card) p-4">
+                <p className="text-xs text-(--color-text-muted)">Buy Cost Today</p>
+                <p className="mt-1 text-2xl font-bold text-(--color-text-primary)">
+                  {formatInr(financials.totalCostInr)}
+                </p>
+                {financials.budgetConstrained ? (
+                  <p className="mt-1 text-xs text-(--color-warning)">
+                    Prioritized high-margin items for budget
+                  </p>
+                ) : null}
+              </div>
+              <div className="rounded-xl border border-(--color-border) bg-(--color-bg-card) p-4">
+                <p className="text-xs text-(--color-text-muted)">Expected Revenue</p>
+                <p className="mt-1 text-2xl font-bold text-(--color-text-primary)">
+                  {formatInr(financials.expectedRevenueInr)}
+                </p>
+              </div>
+              <div className="rounded-xl border border-(--color-border) bg-(--color-bg-card) p-4">
+                <p className="text-xs text-(--color-text-muted)">Expected Profit &amp; Margin</p>
+                <p className="mt-1 text-2xl font-bold text-(--color-success)">
+                  {formatInr(financials.expectedProfitInr)}
+                </p>
+                <p className="mt-1 text-xs text-(--color-text-secondary)">
+                  {financials.marginPercent}% gross margin
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <div className="mt-6 rounded-2xl border border-(--color-border) bg-(--color-bg-card) p-6">
           <h3 className="text-lg font-semibold text-(--color-text-primary)">
             Procurement list
@@ -184,6 +249,12 @@ export default function ForecastOutput({
                     </p>
                     <p className="text-sm font-semibold text-(--color-text-primary)">
                       {toBuy}
+                      {financials?.items?.[item.item]?.costInr != null &&
+                      financials.items[item.item].costInr > 0 ? (
+                        <span className="mt-1 block text-xs font-normal text-(--color-text-muted)">
+                          Est. {formatInr(financials.items[item.item].costInr)}
+                        </span>
+                      ) : null}
                     </p>
                   </div>
                 )

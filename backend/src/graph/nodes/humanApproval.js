@@ -1,9 +1,10 @@
 import { interrupt } from '@langchain/langgraph'
 import {
-  ForecastResultSchema,
+  EnrichedForecastResultSchema,
   normalizeLlmForecast,
 } from '../../schemas.js'
 import { parseQuantity } from './validate.js'
+import { computePlanFinancials } from '../../utils/economics.js'
 
 /**
  * Human-in-the-loop node (T1.8): pauses the graph after `explain` and waits
@@ -66,9 +67,18 @@ export async function humanApproval(state) {
 
   if (decision?.editedPlan) {
     try {
-      const approvedPlan = ForecastResultSchema.parse(
+      const parsedPlan = EnrichedForecastResultSchema.parse(
         normalizeLlmForecast(decision.editedPlan),
       )
+      const financials = computePlanFinancials({
+        procurementList: parsedPlan.procurementList ?? [],
+        sufficientStockItems: parsedPlan.sufficientStockItems ?? [],
+        draftPlan: state.draftPlan,
+        vendorPrices: state.itemPrices,
+        signalPrices: state.signals?.prices,
+        budgetInr: state.budgetInr,
+      })
+      const approvedPlan = { ...parsedPlan, financials }
       const edits = describeEdits(state.plan, approvedPlan)
       return {
         approvedPlan,

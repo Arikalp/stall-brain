@@ -26,11 +26,23 @@ export async function loadContext(state, deps = {}) {
   )
 
   const context = deps.skipFirestore
-    ? { history: [], bias: {} }
+    ? { history: [], bias: {}, storedProfile: null }
     : await getVendorContext(state.vendorId, { db: deps.db })
+
+  const storedProfile = context.storedProfile ?? null
+  const rawBudget = request.budgetInr ?? storedProfile?.dailyBudgetInr ?? null
+  const budgetInr =
+    rawBudget != null && Number.isFinite(Number(rawBudget)) && Number(rawBudget) >= 0
+      ? Number(rawBudget)
+      : null
+  const itemPrices = {
+    ...(storedProfile?.itemPrices ?? {}),
+    ...(request.itemPrices ?? {}),
+  }
 
   const trace = [
     `Loaded context for ${profile.stallLabel} (${finalItems.length} items)`,
+    ...(budgetInr != null ? [`Daily budget cap: ₹${budgetInr}`] : []),
     context.history.length
       ? `History: last ${context.history.length} day(s) of logs`
       : 'History: none yet (new vendor)',
@@ -44,7 +56,8 @@ export async function loadContext(state, deps = {}) {
     profile,
     sessionIngredients: finalItems,
     inventory,
-    budgetInr: null,
+    budgetInr,
+    itemPrices,
     history: context.history,
     bias: context.bias,
     date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date()),

@@ -40,7 +40,11 @@ Rules:
 - You may adjust the DETERMINISTIC DRAFT quantities by at most +/-25% to account for
   edge cases the math cannot see (spoilage, carry-over stock, price spikes, unusual events).
   Every adjusted item MUST include a short "note" explaining the adjustment; do not recompute
-  totals from scratch - start from the draft and adjust within the band.`
+  totals from scratch - start from the draft and adjust within the band.
+- PROFIT & BUDGET OPTIMIZATION (when a daily budget cap is set):
+  The deterministic draft is already pre-optimized to maximize expected profit within the budget.
+  Prioritize high-margin and high-demand items as "essential", mark budget-trimmed or low-margin
+  items "moderate" or "optional", and NEVER let total procurement cost exceed the daily budget cap.`
 
 export function buildUserPrompt(state) {
   const payload = state.request ?? {}
@@ -58,12 +62,24 @@ export function buildUserPrompt(state) {
     })
     .join('\n')
 
+  const itemFin = state.draftPlan?.financials?.items ?? {}
   const draftLines = (state.draftPlan?.items ?? [])
-    .map(
-      (item) =>
-        `- ${item.item}: buy ${item.toBuy} ${item.unit} (need ${item.totalNeeded}, have ${item.alreadyHave})`,
-    )
+    .map((item) => {
+      const econ = itemFin[item.item]
+      const priceHint =
+        econ && econ.buyPrice != null
+          ? ` | buy ₹${econ.buyPrice}/${item.unit}${econ.sellPrice != null ? `, sell ₹${econ.sellPrice}/${item.unit}, margin ₹${Math.round((econ.sellPrice - econ.buyPrice) * 100) / 100}/${item.unit}` : ''}, est. cost ₹${econ.costInr}`
+          : ''
+      return `- ${item.item}: buy ${item.toBuy} ${item.unit} (need ${item.totalNeeded}, have ${item.alreadyHave})${priceHint}`
+    })
     .join('\n')
+
+  const budgetNotes =
+    state.budgetInr != null
+      ? `\nDAILY BUDGET CAP: ₹${state.budgetInr} (draft est. cost ₹${state.draftPlan?.totalEstimatedCost ?? 0}, est. revenue ₹${state.draftPlan?.totalEstimatedRevenue ?? 0}, est. profit ₹${state.draftPlan?.totalEstimatedProfit ?? 0}${state.draftPlan?.budgetConstrained ? ' — TIGHT BUDGET: draft already prioritized high-margin items; do NOT exceed ₹' + state.budgetInr : ''})`
+      : state.draftPlan?.totalEstimatedRevenue
+        ? `\nECONOMICS ESTIMATE: est. cost ₹${state.draftPlan.totalEstimatedCost ?? 0}, est. revenue ₹${state.draftPlan.totalEstimatedRevenue}, est. profit ₹${state.draftPlan.totalEstimatedProfit ?? 0}`
+        : ''
 
   const retryNotes =
     state.validationErrors?.length > 0
@@ -104,7 +120,7 @@ VENDOR INVENTORY CONTEXT:
 Stall Type: ${payload.stall?.name}
 Today's items and current stock on hand:
 ${inventoryLines}
-${draftLines ? `\nDETERMINISTIC DRAFT PLAN (code-computed; review it, do not recompute totals):\n${draftLines}` : ''}
+${draftLines ? `\nDETERMINISTIC DRAFT PLAN (code-computed; review it, do not recompute totals):\n${draftLines}` : ''}${budgetNotes}
 INSTRUCTIONS:
 Generate procurement recommendations for the above items ONLY.
 For each item, subtract what the vendor already has from the recommended total quantity.

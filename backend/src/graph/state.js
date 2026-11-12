@@ -20,6 +20,8 @@ export const AgentState = Annotation.Root({
   inventory: Annotation(),
   /** Daily budget in INR, or null when unset. */
   budgetInr: Annotation(),
+  /** { [item]: { buyPrice?, sellPrice? } } per-item vendor pricing overrides (T3.2). */
+  itemPrices: Annotation(),
 
   /** The original validated request payload (bridge until the frontend sends the new shape). */
   request: Annotation(),

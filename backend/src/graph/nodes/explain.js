@@ -1,6 +1,7 @@
 import { getLlm } from '../../llm.js'
 import { ExplanationSchema } from '../../schemas.js'
 import { describeBiasAdjustments } from '../../learning/bias.js'
+import { computePlanFinancials } from '../../utils/economics.js'
 
 /**
  * Bilingual explanation node (T1.7): generates summary, hindiSummary,
@@ -76,6 +77,22 @@ export function buildExplanationPrompt(state) {
     ? `\nLEARNED ADJUSTMENTS (mention naturally in specialAdvice or confidenceReason):\n${biasLines.map((line) => `- ${line}`).join('\n')}`
     : ''
 
+  const financials =
+    plan.financials ??
+    computePlanFinancials({
+      procurementList: plan.procurementList ?? [],
+      sufficientStockItems: plan.sufficientStockItems ?? [],
+      draftPlan: state.draftPlan,
+      vendorPrices: state.itemPrices,
+      signalPrices: state.signals?.prices,
+      budgetInr: state.budgetInr,
+    })
+
+  const econNote =
+    financials.totalCostInr > 0 || financials.expectedRevenueInr > 0
+      ? `\nEconomics (code-computed): est. cost ₹${financials.totalCostInr}, expected revenue ₹${financials.expectedRevenueInr}, expected profit ₹${financials.expectedProfitInr} (${financials.marginPercent}% margin)${financials.budgetInr != null ? `, budget cap ₹${financials.budgetInr}` : ''}`
+      : ''
+
   return `Date: ${state.request?.dateLabel ?? 'today'} (${state.request?.dayName ?? ''})
 Stall: ${state.profile?.stallLabel ?? ''}
 Weather: ${weatherLine(state.signals)}
@@ -85,7 +102,7 @@ Combined demand multiplier: x${state.multiplier?.combined ?? 1}
 VALIDATED PLAN (do not change any numbers):
 ${itemLines}${sufficient}
 Expected customers: ${plan.expectedCustomers}
-Confidence: ${plan.confidenceLevel}${errorNote}${biasNote}
+Confidence: ${plan.confidenceLevel}${econNote}${errorNote}${biasNote}
 
 Write the briefing.`
 }
@@ -172,6 +189,17 @@ export async function explain(state, deps = {}) {
     }
   }
 
+  const financials =
+    state.plan.financials ??
+    computePlanFinancials({
+      procurementList: state.plan.procurementList ?? [],
+      sufficientStockItems: state.plan.sufficientStockItems ?? [],
+      draftPlan: state.draftPlan,
+      vendorPrices: state.itemPrices,
+      signalPrices: state.signals?.prices,
+      budgetInr: state.budgetInr,
+    })
+
   return {
     plan: {
       ...state.plan,
@@ -180,6 +208,7 @@ export async function explain(state, deps = {}) {
       peakHours: explanation.peakHours,
       specialAdvice: explanation.specialAdvice,
       confidenceReason: explanation.confidenceReason,
+      financials,
     },
     trace: [
       `Explained plan (${method === 'fallback' ? 'deterministic fallback text' : 'LLM briefing'}, confidence: ${state.plan.confidenceLevel})`,
