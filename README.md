@@ -17,6 +17,10 @@ combining live weather, local events, festivals, cricket fixtures, and custom in
 
 [**View Live Demo →**](https://stall-brain.vercel.app)
 
+<br /><br />
+
+<img src="./docs/images/bazaar-brain-banner.jpg" alt="Bazaar Brain — Hyperlocal AI Demand Forecasting for Hazratganj Street Vendors" width="100%" />
+
 </div>
 
 ---
@@ -221,6 +225,8 @@ stall-brain/
 │   ├── README.md
 │   └── .env.example                 # GROQ_API_KEY, Firebase Admin, CORS origin, checkpointer
 │
+├── docs/
+│   └── images/                      # README hero banner, architecture & eval diagrams
 ├── Plans.md                         # Full upgrade roadmap (Phases 0–4)
 ├── README.md                        # Project documentation (this file)
 ├── firestore.rules                  # Firestore owner-only security rules
@@ -230,6 +236,8 @@ stall-brain/
 ---
 
 ## 🤖 Agent Graph (LangGraph.js)
+
+![Bazaar Brain System Architecture Overview](./docs/images/architecture-overview.jpg)
 
 The backend executes daily forecasts through a stateful `StateGraph` (`backend/src/graph/build.js`). Two conditional (dashed) edges implement agentic loops:
 
@@ -345,6 +353,8 @@ npm run eval                # 24-case backtest comparing Old Baseline vs New Age
 ---
 
 ## 📊 Phase 4: Evaluation, Observability & Reliability
+
+![Feedback Loop Workflow and 24-Case Backtest Results](./docs/images/feedback-loop-evals.jpg)
 
 - **Backtest & Eval Harness (`backend/evals/backtest.js`, `npm run eval`)**: Evaluates 24 Hazratganj stall cases across all 7 stall types (rain, festivals, Ekana matches, social buzz, tomorrow-rain perishables, and learned EMA biases):
   - **MAPE (`totalNeeded`)**: `14.33%` (Old Baseline) → `1.09%` (New Agent)
