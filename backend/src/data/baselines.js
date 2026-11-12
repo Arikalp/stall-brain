@@ -83,5 +83,12 @@ export const matchImpact = {
   low: 1.1,
 }
 
+/** Footfall multiplier for local events/melas, by expected footfall level. */
+export const eventImpact = {
+  high: 1.4,
+  medium: 1.2,
+  low: 1.05,
+}
+
 /** Combined multipliers are clamped to this sane range. */
 export const MULTIPLIER_BOUNDS = { min: 0.4, max: 2.5 }

@@ -164,14 +164,16 @@ export const ForecastRequestSchema = z.object({
   }),
   items: z.array(z.string().min(1)).default([]),
   inventory: z.record(z.string().min(1), InventoryEntrySchema).default({}),
-  dateLabel: z.string().min(1),
-  dayName: z.string().min(1),
-  weather: z.object(weatherShape),
-  weatherSignal: z.object(weatherSignalShape),
+  dateLabel: z.string().min(1).optional(),
+  dayName: z.string().min(1).optional(),
+  // T1.3: the backend gathers weather/events/prices itself with tools.
+  // Frontend-computed signals are kept as an optional fallback when a tool fails.
+  weather: z.object(weatherShape).optional(),
+  weatherSignal: z.object(weatherSignalShape).optional(),
   eventSummary: z.string().default('No special events reported today.'),
-  weeklyMultiplier: z.coerce.number(),
-  eventMultiplier: z.coerce.number(),
-  demandMultiplier: z.coerce.number(),
+  weeklyMultiplier: z.coerce.number().optional(),
+  eventMultiplier: z.coerce.number().optional(),
+  demandMultiplier: z.coerce.number().optional(),
 })
 
 // NOTE: This schema must stay transform-free (no coerce/preprocess/default) so it

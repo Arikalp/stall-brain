@@ -163,6 +163,23 @@ describe('validatePlan', () => {
     const result = validatePlan({ plan: null, ...base })
     expect(result.valid).toBe(false)
   })
+
+  it('demotes confidence when live signals failed (degraded-signal rule)', () => {
+    const result = validatePlan({
+      plan: { ...goodPlan, confidenceLevel: 'High' },
+      ...base,
+      signalErrors: ['getWeather: network down'],
+    })
+    expect(result.valid).toBe(false)
+    expect(result.errors.some((error) => error.includes('confidenceLevel'))).toBe(true)
+
+    const ok = validatePlan({
+      plan: { ...goodPlan, confidenceLevel: 'Medium' },
+      ...base,
+      signalErrors: ['getWeather: network down'],
+    })
+    expect(ok.valid).toBe(true)
+  })
 })
 
 describe('buildFallbackPlan', () => {

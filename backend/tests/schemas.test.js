@@ -100,9 +100,11 @@ describe('ForecastRequestSchema', () => {
     expect(parsed.inventory.aloo.quantity).toBe(4)
   })
 
-  it('rejects a request missing weather', () => {
-    const { weather, ...bad } = validRequest
-    expect(() => ForecastRequestSchema.parse(bad)).toThrow()
+  it('accepts a request without weather (the backend gathers signals itself)', () => {
+    const { weather, weatherSignal, demandMultiplier, ...minimal } = validRequest
+    const parsed = ForecastRequestSchema.parse(minimal)
+    expect(parsed.inventory.aloo.quantity).toBe(4)
+    expect(parsed.eventSummary).toBe('No special events reported today.')
   })
 })
 

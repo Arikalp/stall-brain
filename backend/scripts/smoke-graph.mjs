@@ -1,30 +1,42 @@
 import 'dotenv/config'
 import { getForecastGraph } from '../src/graph/build.js'
 
-const request = {
-  stall: { id: 'chaat', name: 'Chaat Stall', items: ['aloo', 'puri', 'imli chutney'] },
-  items: ['aloo', 'puri', 'imli chutney'],
-  inventory: { aloo: { quantity: 4, unit: 'kg' }, puri: { quantity: 0, unit: 'pieces' } },
-  dateLabel: '12 November 2026',
-  dayName: 'Thursday',
-  weather: { temperature: 28 },
-  weatherSignal: {
-    label: 'Clear & Sunny ☀️',
-    footfallImpact: 1.2,
-    recommendation: 'Stock up, clear skies boost footfall.',
-  },
-  eventSummary: 'No special events reported today.',
-  weeklyMultiplier: 1,
-  eventMultiplier: 1,
-  demandMultiplier: 1.2,
+function buildRequest(id, name, items, inventory) {
+  return {
+    stall: { id, name, items },
+    items,
+    inventory,
+    dateLabel: '12 November 2026',
+    dayName: 'Thursday',
+  }
 }
+
+const scenario = process.argv[2] ?? 'chaat'
+
+const scenarios = {
+  chaat: buildRequest(
+    'chaat',
+    'Chaat Stall',
+    ['aloo', 'puri', 'imli chutney'],
+    { aloo: { quantity: 4, unit: 'kg' } },
+  ),
+  chai: buildRequest(
+    'chai',
+    'Chai Tapri',
+    ['milk', 'tea leaves', 'cups'],
+    { milk: { quantity: 0, unit: 'litres' } },
+  ),
+}
+
+const request = scenarios[scenario] ?? scenarios.chaat
 
 const graph = getForecastGraph()
 const finalState = await graph.invoke(
-  { vendorId: 'smoke-test', runId: 'smoke-1', request },
-  { configurable: { thread_id: 'smoke-1' } },
+  { vendorId: 'smoke-test', runId: `smoke-${scenario}`, request },
+  { configurable: { thread_id: `smoke-${scenario}` } },
 )
 
 console.log('TRACE:')
 for (const step of finalState.trace) console.log(` - ${step}`)
+console.log('\nSIGNALS:', JSON.stringify(finalState.signals, null, 2))
 console.log('\nPLAN:', JSON.stringify(finalState.plan, null, 2))

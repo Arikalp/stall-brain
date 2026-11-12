@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildForecastGraph, MAX_PLAN_RETRIES, routeAfterValidate } from '../src/graph/build.js'
 import { loadContext } from '../src/graph/nodes/loadContext.js'
-import { gatherSignals } from '../src/graph/nodes/gatherSignals.js'
 import { forecastDemand } from '../src/graph/nodes/forecast.js'
 
 describe('routeAfterValidate', () => {
@@ -46,7 +45,6 @@ describe('forecast graph skeleton', () => {
     demandMultiplier: 1.2,
   }
 
-  // A fake planner + validator so the skeleton test needs no LLM key.
   const fakePlan = {
     summary: 'test',
     hindiSummary: 'टेस्ट',
@@ -59,6 +57,34 @@ describe('forecast graph skeleton', () => {
     specialAdvice: 'test || टेस्ट',
   }
 
+  // A fake planner + validator so the skeleton test needs no LLM key, and a
+  // deterministic fake gatherSignals (the real one calls Groq for tool choice).
+  const fakeGatherSignals = async (state) => {
+    const request = state.request ?? {}
+    return {
+      signals: {
+        weather: request.weatherSignal
+          ? { label: request.weatherSignal.label, footfallImpact: request.weatherSignal.footfallImpact, recommendation: '' }
+          : null,
+        events: [],
+        festivals: [],
+        match: null,
+        prices: [],
+        social: [],
+        errors: [],
+      },
+      multiplier: {
+        weather: request.weatherSignal?.footfallImpact ?? 1,
+        event: request.eventMultiplier ?? 1,
+        weekday: request.weeklyMultiplier ?? 1,
+        festival: 1,
+        match: 1,
+        combined: request.demandMultiplier ?? 1,
+      },
+      trace: ['Weather: (fake) x1.2', 'fake signals gathered'],
+    }
+  }
+
   function makeGraph(validator) {
     return buildForecastGraph({
       planProcurement: async (state) => ({
@@ -67,6 +93,7 @@ describe('forecast graph skeleton', () => {
       }),
       validate: validator,
       explain: async () => ({ trace: ['fake explain'] }),
+      gatherSignals: fakeGatherSignals,
     })
   }
 
@@ -195,7 +222,7 @@ describe('forecast graph skeleton', () => {
       }
     }
 
-    const graph = buildForecastGraph({ planProcurement: wrongThenRight })
+    const graph = buildForecastGraph({ planProcurement: wrongThenRight, gatherSignals: fakeGatherSignals })
     const finalState = await graph.invoke(
       { vendorId: 'v', runId: 'run-3', request },
       { configurable: { thread_id: 'run-3' } },
@@ -223,7 +250,7 @@ describe('forecast graph skeleton', () => {
       trace: ['wrong'],
     })
 
-    const graph = buildForecastGraph({ planProcurement: alwaysWrong })
+    const graph = buildForecastGraph({ planProcurement: alwaysWrong, gatherSignals: fakeGatherSignals })
     const finalState = await graph.invoke(
       { vendorId: 'v', runId: 'run-4', request },
       { configurable: { thread_id: 'run-4' } },
@@ -251,16 +278,6 @@ describe('stub nodes', () => {
     const update = await loadContext({ request })
     expect(update.profile.ingredients).toEqual(['milk'])
     expect(update.inventory.milk).toEqual({ quantity: 0, unit: 'units' })
-  })
-
-  it('gatherSignals maps the frontend-computed multipliers', async () => {
-    const update = await gatherSignals({
-      request,
-      date: '2026-11-12',
-      multiplier: undefined,
-    })
-    expect(update.signals.weather.footfallImpact).toBe(0.85)
-    expect(update.multiplier.combined).toBe(0.765)
   })
 
   it('forecastDemand computes a real draft (chai fallback case)', async () => {

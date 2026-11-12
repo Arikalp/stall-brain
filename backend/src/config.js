@@ -17,6 +17,10 @@ const envSchema = z.object({
   FIREBASE_PROJECT_ID: z.string().optional(),
   FIREBASE_SERVICE_ACCOUNT_JSON: z.string().optional(),
   FIREBASE_SERVICE_ACCOUNT_PATH: z.string().optional(),
+  // Optional signal sources: web search (Tavily) and live mandi prices (data.gov.in).
+  // Without them the corresponding tools degrade gracefully to curated/mock data.
+  TAVILY_API_KEY: z.string().optional(),
+  DATA_GOV_IN_API_KEY: z.string().optional(),
 })
 
 const parsed = envSchema.safeParse(process.env)
@@ -49,4 +53,6 @@ export const config = Object.freeze({
   firebaseProjectId: parsed.data.FIREBASE_PROJECT_ID,
   firebaseServiceAccountJson: parsed.data.FIREBASE_SERVICE_ACCOUNT_JSON,
   firebaseServiceAccountPath: parsed.data.FIREBASE_SERVICE_ACCOUNT_PATH,
+  tavilyApiKey: parsed.data.TAVILY_API_KEY,
+  dataGovInApiKey: parsed.data.DATA_GOV_IN_API_KEY,
 })

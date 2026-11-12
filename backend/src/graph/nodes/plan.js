@@ -5,7 +5,8 @@ import {
 } from '../../schemas.js'
 
 // Kept close to the prompt the frontend used before the key moved server-side.
-const SYSTEM_PROMPT = `You are Bazaar Brain, an AI demand forecaster for street vendors in Lucknow.
+// Exported so tests can assert on the confidence/tool-error rules.
+export const SYSTEM_PROMPT = `You are Bazaar Brain, an AI demand forecaster for street vendors in Lucknow.
 Respond ONLY in the following JSON format, with no markdown and no extra keys:
 {
   "summary": "one sentence overview of today",
@@ -34,9 +35,10 @@ Rules:
 - expectedCustomers must be a number (no quotes).
 - totalNeeded, alreadyHave, and toBuy must include quantities with units (e.g. "12 kg").
 - If an item has sufficient stock, omit it from procurementList and list it in sufficientStockItems.
-- Do not include any keys beyond the schema.`
+- Do not include any keys beyond the schema.
+- If SIGNAL ERRORS are listed below, confidenceLevel must be "Medium" or "Low", and mention the missing signal in confidenceReason.`
 
-function buildUserPrompt(state) {
+export function buildUserPrompt(state) {
   const payload = state.request ?? {}
   const finalItems = state.sessionIngredients ?? []
 
@@ -66,6 +68,14 @@ function buildUserPrompt(state) {
           .join('\n')}`
       : ''
 
+  const toolErrors = state.signals?.errors ?? []
+  const errorNotes =
+    toolErrors.length > 0
+      ? `\n\nSIGNAL ERRORS (some live data is missing, so lower your confidence and note it):\n${toolErrors
+          .map((error) => `- ${error}`)
+          .join('\n')}`
+      : ''
+
   return `Stall type: ${payload.stall?.name}
 Stock items: ${finalItems.join(', ')}
 The vendor sells these specific items: ${finalItems.join(', ')}
@@ -90,7 +100,7 @@ Events today: ${state.signals?.events?.[0]?.name ?? 'No special events reported 
 Event impact multiplier: ${state.multiplier?.event ?? 1}
 Weekly footfall multiplier for ${payload.dayName}: ${state.multiplier?.weekday ?? 1}
 Combined demand multiplier (weather x event x day-of-week): ${state.multiplier?.combined ?? 1}
-Return precise procurement quantities and peak hours for Hazratganj, Lucknow.${retryNotes}`
+Return precise procurement quantities and peak hours for Hazratganj, Lucknow.${errorNotes}${retryNotes}`
 }
 
 /**

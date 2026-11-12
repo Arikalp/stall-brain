@@ -39,11 +39,20 @@ export function validatePlan({
   sessionIngredients,
   budgetInr,
   prices,
+  signalErrors,
 }) {
   const errors = []
 
   if (!plan) {
     return ValidationResultSchema.parse({ valid: false, errors: ['No plan was produced.'] })
+  }
+
+  // 7. Degraded signals must not carry high confidence (T1.3 acceptance:
+  // a failing tool still yields a forecast with a lower confidence level).
+  if (signalErrors?.length > 0 && plan.confidenceLevel === 'High') {
+    errors.push(
+      'Some live signals failed to load, so confidenceLevel must be "Medium" or "Low" (not "High").',
+    )
   }
 
   const draftItems = draftPlan?.items ?? []
@@ -166,6 +175,7 @@ export async function validate(state) {
     sessionIngredients: state.sessionIngredients,
     budgetInr: state.budgetInr,
     prices: state.signals?.prices,
+    signalErrors: state.signals?.errors,
   })
 
   if (result.valid) {
