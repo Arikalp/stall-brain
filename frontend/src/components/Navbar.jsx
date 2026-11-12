@@ -41,9 +41,11 @@ export default function Navbar() {
           href="#top"
           onClick={(event) => handleNavClick(event, "#top")}
         >
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-amber-300/40 bg-amber-300/15 text-[0.7rem] font-bold text-amber-200 transition-transform duration-300 group-hover:scale-105">
-            BB
-          </span>
+          <img
+            alt="Bazaar Brain"
+            className="h-9 w-9 object-contain transition-transform duration-300 group-hover:scale-105"
+            src="/logo.svg"
+          />
           <span className="text-base">Bazaar Brain</span>
         </a>
 

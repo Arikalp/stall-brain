@@ -10,9 +10,11 @@ export default function Footer() {
           <div className="flex flex-col gap-10 md:flex-row md:items-start md:justify-between">
             <div className="space-y-4">
               <div className="flex items-center gap-3 text-white">
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-300/40 bg-amber-300/10 text-xs font-semibold text-amber-200">
-                  BB
-                </span>
+                <img
+                  alt="Bazaar Brain"
+                  className="h-10 w-10 object-contain"
+                  src="/logo.svg"
+                />
                 <span className="text-lg font-semibold">Bazaar Brain</span>
               </div>
               <p className="max-w-xs text-sm text-white/60">

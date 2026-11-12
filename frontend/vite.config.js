@@ -13,7 +13,7 @@ export default defineConfig({
       srcDir: 'src',
       filename: 'sw.js',
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'icons.svg'],
+      includeAssets: ['favicon.svg', 'favicon.png', 'favicon-192.png', 'favicon-512.png', 'logo.svg', 'logo-icon.png'],
       manifest: {
         name: 'Bazaar Brain',
         short_name: 'BazaarBrain',
@@ -24,20 +24,20 @@ export default defineConfig({
         start_url: '/',
         icons: [
           {
-            src: '/favicon.svg',
-            sizes: 'any',
-            type: 'image/svg+xml',
+            src: '/favicon-192.png',
+            sizes: '192x192',
+            type: 'image/png',
           },
           {
-            src: '/icons.svg',
-            sizes: 'any',
-            type: 'image/svg+xml',
+            src: '/favicon-512.png',
+            sizes: '512x512',
+            type: 'image/png',
             purpose: 'any maskable',
           },
         ],
       },
       injectManifest: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,jpg,svg}'],
       },
     }),
   ],

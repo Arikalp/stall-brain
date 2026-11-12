@@ -80,7 +80,11 @@ export default function HomePage() {
               className="home-logo"
               to="/home"
             >
-              BB
+              <img
+                alt="Bazaar Brain"
+                className="h-12 w-12 object-contain"
+                src="/logo.svg"
+              />
             </Link>
             <div>
               <h1 className="text-4xl font-extrabold tracking-tight text-transparent sm:text-5xl lg:text-6xl bg-gradient-to-r from-[#F59E0B] to-[#FBBF24] bg-clip-text">
