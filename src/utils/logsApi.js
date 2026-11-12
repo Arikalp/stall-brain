@@ -8,7 +8,7 @@ import { apiRequest } from './api'
 
 /**
  * @param {{date: string, items: Array<{item: string, outcome: string, leftoverLevel?: string}>, customers?: number}} log
- * @returns {Promise<{saved: boolean, date: string}>}
+ * @returns {Promise<{saved: boolean, date: string, biasUpdated: string[], biasExplanations: string[]}>}
  */
 export async function submitDailyLog(log) {
   return apiRequest('/api/logs', {

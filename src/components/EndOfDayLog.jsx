@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CheckCircle2, Store } from 'lucide-react'
+import { CheckCircle2, Store, TrendingDown, TrendingUp } from 'lucide-react'
 import { submitDailyLog } from '../utils/logsApi'
 
 /**
@@ -61,6 +61,7 @@ export default function EndOfDayLog({ items, date, onLogged, onError }) {
   const [customers, setCustomers] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [savedDate, setSavedDate] = useState(null)
+  const [biasExplanations, setBiasExplanations] = useState([])
   const [validationError, setValidationError] = useState('')
 
   const itemList = items ?? []
@@ -82,7 +83,7 @@ export default function EndOfDayLog({ items, date, onLogged, onError }) {
     setSubmitting(true)
     try {
       const parsedCustomers = Number(customers)
-      await submitDailyLog({
+      const result = await submitDailyLog({
         date,
         items: itemList.map((item) => {
           const outcome = selections[item]
@@ -97,6 +98,7 @@ export default function EndOfDayLog({ items, date, onLogged, onError }) {
           ? { customers: parsedCustomers }
           : {}),
       })
+      setBiasExplanations(Array.isArray(result?.biasExplanations) ? result.biasExplanations : [])
       setSavedDate(date)
       onLogged?.()
     } catch (error) {
@@ -119,6 +121,22 @@ export default function EndOfDayLog({ items, date, onLogged, onError }) {
           We&apos;ll use this to make tomorrow&apos;s forecast smarter for your
           stall.
         </p>
+        {biasExplanations.length > 0 ? (
+          <div className="mt-4 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-widest text-[var(--color-text-muted)]">
+              What I&apos;ll adjust tomorrow
+            </p>
+            {biasExplanations.map((line, index) => (
+              <div
+                key={index}
+                className="flex items-start gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-input)] px-3 py-2 text-xs text-[var(--color-text-secondary)]"
+              >
+                <span className="mt-0.5 text-[var(--color-primary)]">?</span>
+                <span>{line}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
     )
   }

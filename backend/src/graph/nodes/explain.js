@@ -1,5 +1,6 @@
 import { getLlm } from '../../llm.js'
 import { ExplanationSchema } from '../../schemas.js'
+import { describeBiasAdjustments } from '../../learning/bias.js'
 
 /**
  * Bilingual explanation node (T1.7): generates summary, hindiSummary,
@@ -67,6 +68,14 @@ export function buildExplanationPrompt(state) {
     ? `\nSome live signals failed (${toolErrors.join('; ')}); the confidence level is ${plan.confidenceLevel} - mention the missing data in confidenceReason.`
     : ''
 
+  // T2.3: Tell the LLM which items had their quantities adjusted by the bias
+  // engine so it can mention this naturally in the bilingual summary.
+  const weekday = state.date ? new Date(`${state.date}T00:00:00+05:30`).getDay() : null
+  const biasLines = describeBiasAdjustments(state.bias, state.sessionIngredients, weekday)
+  const biasNote = biasLines.length
+    ? `\nLEARNED ADJUSTMENTS (mention naturally in specialAdvice or confidenceReason):\n${biasLines.map((line) => `- ${line}`).join('\n')}`
+    : ''
+
   return `Date: ${state.request?.dateLabel ?? 'today'} (${state.request?.dayName ?? ''})
 Stall: ${state.profile?.stallLabel ?? ''}
 Weather: ${weatherLine(state.signals)}
@@ -76,7 +85,7 @@ Combined demand multiplier: x${state.multiplier?.combined ?? 1}
 VALIDATED PLAN (do not change any numbers):
 ${itemLines}${sufficient}
 Expected customers: ${plan.expectedCustomers}
-Confidence: ${plan.confidenceLevel}${errorNote}
+Confidence: ${plan.confidenceLevel}${errorNote}${biasNote}
 
 Write the briefing.`
 }

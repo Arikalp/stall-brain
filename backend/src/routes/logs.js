@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js'
 import { vendorRateLimit } from '../middleware/rateLimit.js'
 import { DailyLogSchema } from '../schemas.js'
 import { getRecentLogs, saveDailyLog } from '../store/firestore.js'
+import { updateBiasFromLog } from '../learning/bias.js'
 
 export const logsRouter = Router()
 
@@ -41,7 +42,24 @@ logsRouter.post(
           reason: result.reason,
         })
       }
-      return res.json({ saved: true, date: parsedBody.data.date })
+
+      // T2.3: Update bias factors asynchronously — a bias-write failure must
+      // never block the vendor's successful log confirmation.
+      const biasResult = await updateBiasFromLog(
+        req.vendorId,
+        parsedBody.data.items,
+        parsedBody.data.date,
+      ).catch((error) => {
+        console.warn('[logs] bias update failed (non-fatal):', error?.message ?? error)
+        return { updated: [], skipped: [], biasExplanations: [] }
+      })
+
+      return res.json({
+        saved: true,
+        date: parsedBody.data.date,
+        biasUpdated: biasResult.updated ?? [],
+        biasExplanations: biasResult.biasExplanations ?? [],
+      })
     } catch (error) {
       return next(error)
     }
