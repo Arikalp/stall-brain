@@ -38,7 +38,7 @@ export async function fetchWeatherSignal({ date, fetchImpl = fetch } = {}) {
     hourly: 'temperature_2m,precipitation_probability,weather_code',
     daily: 'temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code',
     timezone: 'Asia/Kolkata',
-    forecast_days: '2',
+    forecast_days: '3',
   })
 
   const response = await fetchImpl(`https://api.open-meteo.com/v1/forecast?${params}`, {
@@ -55,23 +55,36 @@ export async function fetchWeatherSignal({ date, fetchImpl = fetch } = {}) {
     throw new Error(`Open-Meteo has no forecast for ${target}`)
   }
 
-  const hours = times.slice(dayIndex, dayIndex + 24)
-  const temps = data.hourly.temperature_2m.slice(dayIndex, dayIndex + 24)
-  const codes = data.hourly.weather_code.slice(dayIndex, dayIndex + 24)
-  const rain = data.hourly.precipitation_probability.slice(dayIndex, dayIndex + 24)
+  function summarizeDay(startIdx) {
+    const hours = times.slice(startIdx, startIdx + 24)
+    if (!hours.length) return null
+    const dateStr = hours[0].slice(0, 10)
+    const temps = (data.hourly.temperature_2m ?? []).slice(startIdx, startIdx + 24)
+    const codes = (data.hourly.weather_code ?? []).slice(startIdx, startIdx + 24)
+    const rain = (data.hourly.precipitation_probability ?? []).slice(startIdx, startIdx + 24)
 
-  const dayCode = codes[12] ?? codes[0] ?? 0
-  const signal = mapWeatherCode(dayCode)
-  const maxRain = Math.max(...rain.map((value) => value ?? 0))
-  const peakRainHour = rain.indexOf(maxRain)
+    const dayCode = codes[12] ?? codes[0] ?? 0
+    const signal = mapWeatherCode(dayCode)
+    const maxRain = rain.length ? Math.max(...rain.map((value) => value ?? 0)) : 0
+    const peakRainHour = rain.indexOf(maxRain)
+    return {
+      date: dateStr,
+      label: signal.label,
+      footfallImpact: signal.footfallImpact,
+      recommendation: `${signal.recommendation}${maxRain > 40 ? ` Rain probability peaks at ${maxRain}% around ${hours[peakRainHour]?.slice(11) ?? ''}.` : ''}`,
+      temperature: Math.round(temps[12] ?? temps[0] ?? 0),
+      rainProbabilityPeak: maxRain,
+    }
+  }
+
+  const todaySummary = summarizeDay(dayIndex)
+  const lookahead = [0, 1, 2]
+    .map((offset) => summarizeDay(dayIndex + offset * 24))
+    .filter(Boolean)
 
   return {
-    date: target,
-    label: signal.label,
-    footfallImpact: signal.footfallImpact,
-    recommendation: `${signal.recommendation}${maxRain > 40 ? ` Rain probability peaks at ${maxRain}% around ${hours[peakRainHour]?.slice(11) ?? ''}.` : ''}`,
-    temperature: Math.round(temps[12] ?? temps[0] ?? 0),
-    rainProbabilityPeak: maxRain,
+    ...todaySummary,
+    lookahead,
     source: 'open-meteo',
     isMock: false,
   }

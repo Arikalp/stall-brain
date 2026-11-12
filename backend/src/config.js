@@ -25,6 +25,15 @@ const envSchema = z.object({
   // survive restarts so pending approvals are not lost). Firestore mode needs
   // the Firebase Admin credentials above.
   CHECKPOINT_BACKEND: z.enum(['memory', 'firestore']).default('memory'),
+  // Optional WhatsApp Cloud API or Twilio WhatsApp delivery (T3.6).
+  // Without these, morning messages run in dry-run/mock preview mode.
+  WHATSAPP_CRON_ENABLED: z.string().optional(),
+  WHATSAPP_TOKEN: z.string().optional(),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
+  WHATSAPP_VERIFY_TOKEN: z.string().optional(),
+  TWILIO_ACCOUNT_SID: z.string().optional(),
+  TWILIO_AUTH_TOKEN: z.string().optional(),
+  TWILIO_WHATSAPP_FROM: z.string().optional(),
 })
 
 const parsed = envSchema.safeParse(process.env)
@@ -60,4 +69,11 @@ export const config = Object.freeze({
   tavilyApiKey: parsed.data.TAVILY_API_KEY,
   dataGovInApiKey: parsed.data.DATA_GOV_IN_API_KEY,
   checkpointBackend: parsed.data.CHECKPOINT_BACKEND,
+  whatsappCronEnabled: parsed.data.WHATSAPP_CRON_ENABLED !== 'false',
+  whatsappToken: parsed.data.WHATSAPP_TOKEN,
+  whatsappPhoneNumberId: parsed.data.WHATSAPP_PHONE_NUMBER_ID,
+  whatsappVerifyToken: parsed.data.WHATSAPP_VERIFY_TOKEN ?? 'bazaar-brain-verify',
+  twilioAccountSid: parsed.data.TWILIO_ACCOUNT_SID,
+  twilioAuthToken: parsed.data.TWILIO_AUTH_TOKEN,
+  twilioWhatsappFrom: parsed.data.TWILIO_WHATSAPP_FROM,
 })

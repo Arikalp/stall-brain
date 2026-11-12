@@ -99,6 +99,7 @@ export async function requestForecastStream(payload, onStep) {
         result.status = 'DONE'
         result.runId = data.runId ?? result.runId
         result.plan = data.plan ?? null
+        result.simulation = Boolean(data.simulation)
         break
       case 'error':
         streamError = makeError(

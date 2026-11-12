@@ -112,6 +112,16 @@ export function buildUserPrompt(state) {
           .join(', ')}`
       : ''
 
+  const perishableNotes = state.draftPlan?.perishableNotes?.length
+    ? `\n\nSHELF-LIFE & LOOKAHEAD NOTES (do not exceed these perishable caps):\n${state.draftPlan.perishableNotes
+        .map((n) => `- ${n}`)
+        .join('\n')}`
+    : ''
+
+  const socialNotes = state.signals?.socialBuzz?.hasSpike
+    ? `\nSocial buzz signal: ${state.signals.socialBuzz.label} (${state.signals.socialBuzz.summary})`
+    : ''
+
   return `Stall type: ${payload.stall?.name}
 Stock items: ${finalItems.join(', ')}
 The vendor sells these specific items: ${finalItems.join(', ')}
@@ -135,8 +145,8 @@ Weather footfall impact: ${state.multiplier?.weather ?? 1}
 Events today: ${state.signals?.events?.[0]?.name ?? 'No special events reported today.'}
 Event impact multiplier: ${state.multiplier?.event ?? 1}
 Weekly footfall multiplier for ${payload.dayName}: ${state.multiplier?.weekday ?? 1}
-Combined demand multiplier (weather x event x day-of-week): ${state.multiplier?.combined ?? 1}
-Return precise procurement quantities and peak hours for Hazratganj, Lucknow.${errorNotes}${historyNotes}${biasNotes}${retryNotes}`
+Combined demand multiplier (weather x event x day-of-week): ${state.multiplier?.combined ?? 1}${socialNotes}
+Return precise procurement quantities and peak hours for Hazratganj, Lucknow.${errorNotes}${historyNotes}${biasNotes}${perishableNotes}${retryNotes}`
 }
 
 /**

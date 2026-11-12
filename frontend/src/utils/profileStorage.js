@@ -49,6 +49,14 @@ function normalizeProfile(profile) {
     ingredients,
     dailyBudgetInr: normalizeBudget(profile.dailyBudgetInr),
     itemPrices: normalizeItemPrices(profile.itemPrices),
+    whatsappOptIn: Boolean(profile.whatsappOptIn),
+    whatsappPhone:
+      typeof profile.whatsappPhone === 'string' ? profile.whatsappPhone.trim() : '',
+    lane:
+      typeof profile.lane === 'string' && profile.lane.trim()
+        ? profile.lane.trim()
+        : 'Hazratganj',
+    groupBuyingOptIn: Boolean(profile.groupBuyingOptIn),
   }
 }
 

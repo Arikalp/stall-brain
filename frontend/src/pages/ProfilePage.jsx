@@ -12,6 +12,7 @@ import {
   saveProfile,
 } from '../utils/profileStorage'
 import { fetchServerProfile, pushServerProfile } from '../utils/profileApi'
+import { apiRequest } from '../utils/api'
 import { clearForecastSession } from '../utils/forecastSessionStore'
 import { auth } from '../utils/firebase'
 
@@ -28,6 +29,17 @@ export default function ProfilePage() {
     storedProfile?.dailyBudgetInr != null ? String(storedProfile.dailyBudgetInr) : '',
   )
   const [itemPrices, setItemPrices] = useState(() => storedProfile?.itemPrices ?? {})
+  const [whatsappOptIn, setWhatsappOptIn] = useState(
+    () => Boolean(storedProfile?.whatsappOptIn),
+  )
+  const [whatsappPhone, setWhatsappPhone] = useState(
+    () => storedProfile?.whatsappPhone ?? '',
+  )
+  const [lane, setLane] = useState(() => storedProfile?.lane ?? 'Hazratganj')
+  const [groupBuyingOptIn, setGroupBuyingOptIn] = useState(
+    () => Boolean(storedProfile?.groupBuyingOptIn),
+  )
+  const [waPreview, setWaPreview] = useState('')
   const [newItem, setNewItem] = useState('')
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
@@ -58,6 +70,10 @@ export default function ProfilePage() {
           cached.dailyBudgetInr != null ? String(cached.dailyBudgetInr) : '',
         )
         setItemPrices(cached.itemPrices ?? {})
+        setWhatsappOptIn(Boolean(cached.whatsappOptIn))
+        setWhatsappPhone(cached.whatsappPhone ?? '')
+        setLane(cached.lane ?? 'Hazratganj')
+        setGroupBuyingOptIn(Boolean(cached.groupBuyingOptIn))
       })
       .catch(() => {
         // Offline or backend down: the vendor can still fill the form manually.
@@ -173,6 +189,10 @@ export default function ProfilePage() {
       ingredients: cleanedItems,
       dailyBudgetInr: parsedBudget,
       itemPrices: activePrices,
+      whatsappOptIn,
+      whatsappPhone: whatsappPhone.trim(),
+      lane: lane.trim() || 'Hazratganj',
+      groupBuyingOptIn,
     })
 
     if (!saved) {
@@ -191,6 +211,27 @@ export default function ProfilePage() {
     setError('')
     setToast('Profile saved! Your stall is ready.')
     navigate('/forecast')
+  }
+
+  const handlePreviewWhatsapp = async () => {
+    try {
+      const sampleItems = normalizeIngredients(items).slice(0, 4).map((name) => ({
+        item: name,
+        toBuy: '5 units',
+      }))
+      const resp = await apiRequest('/api/whatsapp/preview', {
+        method: 'POST',
+        body: {
+          phone: whatsappPhone.trim() || undefined,
+          stallLabel: selectedStall?.name ?? 'आपका ठेला',
+          plan: { procurementList: sampleItems },
+          send: false,
+        },
+      })
+      if (resp?.message) setWaPreview(resp.message)
+    } catch {
+      setWaPreview('Preview requires backend connection.')
+    }
   }
 
   const handleLogout = async () => {
@@ -380,6 +421,83 @@ export default function ProfilePage() {
                   placeholder="No cap (e.g. 1500)"
                   className="w-48 rounded-xl border border-(--color-border) bg-(--color-bg-input) px-3 py-2 text-sm text-(--color-text-primary) placeholder:text-(--color-text-muted) outline-none focus:border-(--color-border-focus)"
                 />
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              <div className="rounded-2xl border border-(--color-border) bg-(--color-bg-card) p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-(--color-text-primary)">
+                      WhatsApp 6 AM Morning Briefing
+                    </p>
+                    <p className="mt-1 text-xs text-(--color-text-secondary)">
+                      Receive a compact Hindi buy list daily at 6:00 AM IST. Reply 1 to approve or STOP anytime.
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={whatsappOptIn}
+                    onChange={(event) => setWhatsappOptIn(event.target.checked)}
+                    aria-label="Opt into 6 AM WhatsApp briefing"
+                    className="mt-1 h-4 w-4 accent-(--color-primary)"
+                  />
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <input
+                    type="tel"
+                    value={whatsappPhone}
+                    onChange={(event) => setWhatsappPhone(event.target.value)}
+                    placeholder="+91 98XXXXXXXX"
+                    aria-label="WhatsApp phone number"
+                    className="min-w-[180px] flex-1 rounded-xl border border-(--color-border) bg-(--color-bg-input) px-3 py-2 text-sm text-(--color-text-primary) placeholder:text-(--color-text-muted) outline-none focus:border-(--color-border-focus)"
+                  />
+                  <button
+                    type="button"
+                    onClick={handlePreviewWhatsapp}
+                    className="rounded-xl border border-(--color-border) bg-transparent px-3 py-2 text-xs font-semibold text-(--color-text-secondary) hover:bg-(--color-bg-card-hover)"
+                  >
+                    Preview Hindi msg
+                  </button>
+                </div>
+                {waPreview ? (
+                  <pre className="mt-3 whitespace-pre-wrap rounded-xl border border-(--color-border) bg-(--color-bg-input) p-3 text-xs text-(--color-text-secondary)">
+                    {waPreview}
+                  </pre>
+                ) : null}
+              </div>
+
+              <div className="rounded-2xl border border-(--color-border) bg-(--color-bg-card) p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-(--color-text-primary)">
+                      Market Lane &amp; Group Buying
+                    </p>
+                    <p className="mt-1 text-xs text-(--color-text-secondary)">
+                      Select your Lucknow market lane and optionally pool anonymous bulk demand with neighbors.
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={groupBuyingOptIn}
+                    onChange={(event) => setGroupBuyingOptIn(event.target.checked)}
+                    aria-label="Opt into lane group buying"
+                    className="mt-1 h-4 w-4 accent-(--color-primary)"
+                  />
+                </div>
+                <select
+                  value={lane}
+                  onChange={(event) => setLane(event.target.value)}
+                  aria-label="Market lane"
+                  className="mt-3 w-full rounded-xl border border-(--color-border) bg-(--color-bg-input) px-3 py-2 text-sm text-(--color-text-primary) outline-none focus:border-(--color-border-focus)"
+                >
+                  <option value="Hazratganj">Hazratganj</option>
+                  <option value="Janpath Market">Janpath Market</option>
+                  <option value="Aminabad">Aminabad</option>
+                  <option value="Gomti Nagar">Gomti Nagar</option>
+                  <option value="Chowk">Chowk</option>
+                  <option value="Alambagh">Alambagh</option>
+                </select>
               </div>
             </div>
           </section>

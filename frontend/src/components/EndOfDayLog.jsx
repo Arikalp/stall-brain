@@ -1,6 +1,11 @@
-import { useState } from 'react'
-import { CheckCircle2, Store, TrendingDown, TrendingUp } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { CheckCircle2, CloudOff, Store, TrendingDown, TrendingUp } from 'lucide-react'
 import { submitDailyLog } from '../utils/logsApi'
+import {
+  enqueueOfflineLog,
+  flushOfflineLogQueue,
+  getQueuedOfflineLogs,
+} from '../utils/offlineStore'
 
 /**
  * End-of-day sales log (T2.1): the vendor reports what actually happened in
@@ -61,8 +66,26 @@ export default function EndOfDayLog({ items, date, onLogged, onError }) {
   const [customers, setCustomers] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [savedDate, setSavedDate] = useState(null)
+  const [queuedOffline, setQueuedOffline] = useState(false)
+  const [pendingQueueCount, setPendingQueueCount] = useState(
+    () => getQueuedOfflineLogs().length,
+  )
   const [biasExplanations, setBiasExplanations] = useState([])
   const [validationError, setValidationError] = useState('')
+
+  useEffect(() => {
+    const syncQueue = async () => {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return
+      const res = await flushOfflineLogQueue(submitDailyLog)
+      setPendingQueueCount(res.remaining)
+      if (res.synced > 0 && queuedOffline) {
+        setQueuedOffline(false)
+      }
+    }
+    syncQueue()
+    window.addEventListener('online', syncQueue)
+    return () => window.removeEventListener('online', syncQueue)
+  }, [queuedOffline])
 
   const itemList = items ?? []
   const answeredCount = Object.keys(selections).length
@@ -80,29 +103,49 @@ export default function EndOfDayLog({ items, date, onLogged, onError }) {
       return
     }
 
+    const parsedCustomers = Number(customers)
+    const payload = {
+      date,
+      items: itemList.map((item) => {
+        const outcome = selections[item]
+        const leftover = LEFTOVER_LEVELS.find((entry) => entry.outcome === outcome)
+        return {
+          item,
+          outcome,
+          ...(leftover ? { leftoverLevel: leftover.level } : {}),
+        }
+      }),
+      ...(Number.isFinite(parsedCustomers) && customers.trim() !== ''
+        ? { customers: parsedCustomers }
+        : {}),
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      const next = enqueueOfflineLog(payload)
+      setPendingQueueCount(next.length)
+      setQueuedOffline(true)
+      setSavedDate(date)
+      onLogged?.()
+      return
+    }
+
     setSubmitting(true)
     try {
-      const parsedCustomers = Number(customers)
-      const result = await submitDailyLog({
-        date,
-        items: itemList.map((item) => {
-          const outcome = selections[item]
-          const leftover = LEFTOVER_LEVELS.find((entry) => entry.outcome === outcome)
-          return {
-            item,
-            outcome,
-            ...(leftover ? { leftoverLevel: leftover.level } : {}),
-          }
-        }),
-        ...(Number.isFinite(parsedCustomers) && customers.trim() !== ''
-          ? { customers: parsedCustomers }
-          : {}),
-      })
+      const result = await submitDailyLog(payload)
       setBiasExplanations(Array.isArray(result?.biasExplanations) ? result.biasExplanations : [])
+      setQueuedOffline(false)
       setSavedDate(date)
       onLogged?.()
     } catch (error) {
-      onError?.(error?.code ?? 'UNKNOWN')
+      if (error?.code === 'NETWORK_ERROR') {
+        const next = enqueueOfflineLog(payload)
+        setPendingQueueCount(next.length)
+        setQueuedOffline(true)
+        setSavedDate(date)
+        onLogged?.()
+      } else {
+        onError?.(error?.code ?? 'UNKNOWN')
+      }
     } finally {
       setSubmitting(false)
     }
@@ -112,14 +155,19 @@ export default function EndOfDayLog({ items, date, onLogged, onError }) {
     return (
       <div className="mt-8 rounded-2xl border border-[var(--color-success)] bg-[rgba(74,222,128,0.12)] p-6">
         <div className="flex items-center gap-3">
-          <CheckCircle2 className="h-6 w-6 text-[var(--color-success)]" />
+          {queuedOffline ? (
+            <CloudOff className="h-6 w-6 text-[var(--color-warning)]" />
+          ) : (
+            <CheckCircle2 className="h-6 w-6 text-[var(--color-success)]" />
+          )}
           <h3 className="text-lg font-semibold text-[var(--color-text-primary)]">
-            Day saved!
+            {queuedOffline ? 'Saved offline — queued for sync' : 'Day saved!'}
           </h3>
         </div>
         <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
-          We&apos;ll use this to make tomorrow&apos;s forecast smarter for your
-          stall.
+          {queuedOffline
+            ? `Your ${date} report is saved on this device (${pendingQueueCount} pending) and will upload automatically when you are back online.`
+            : 'We\u2019ll use this to make tomorrow\u2019s forecast smarter for your stall.'}
         </p>
         {biasExplanations.length > 0 ? (
           <div className="mt-4 space-y-2">

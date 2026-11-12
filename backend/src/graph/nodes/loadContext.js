@@ -58,6 +58,11 @@ export async function loadContext(state, deps = {}) {
     inventory,
     budgetInr,
     itemPrices,
+    simulation: Boolean(request.simulation),
+    signalOverrides: request.signalOverrides ?? null,
+    lane: request.lane ?? storedProfile?.lane ?? 'Hazratganj',
+    groupBuyingOptIn:
+      request.groupBuyingOptIn ?? Boolean(storedProfile?.groupBuyingOptIn),
     history: context.history,
     bias: context.bias,
     date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date()),

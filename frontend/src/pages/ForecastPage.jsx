@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
-import { X } from 'lucide-react'
+import { CloudOff, X } from 'lucide-react'
 import Header from '../components/Header'
 import SignalPanel from '../components/SignalPanel'
 import ForecastOutput from '../components/ForecastOutput'
@@ -9,9 +9,18 @@ import HistoryLog from '../components/HistoryLog'
 import EndOfDayLog from '../components/EndOfDayLog'
 import LoadingState from '../components/LoadingState'
 import VoiceInventoryInput from '../components/VoiceInventoryInput'
+import WhatIfPanel from '../components/WhatIfPanel'
+import GroupBuyingCard from '../components/GroupBuyingCard'
 import { getEventsForDate, getWeeklyMultiplier } from '../data/events'
 import { getWeatherSignal } from '../utils/weatherLogic'
 import { requestForecastStream, resumeForecast } from '../utils/groqAgent'
+import { fetchGroupBuying, toggleGroupBuyingOptIn } from '../utils/groupBuyingApi'
+import {
+  flushOfflineLogQueue,
+  loadLastForecast,
+  saveLastForecast,
+} from '../utils/offlineStore'
+import { submitDailyLog } from '../utils/logsApi'
 import PlanEditor from '../components/PlanEditor'
 import { getTodayInfo } from '../utils/dateTime'
 import { loadProfile, normalizeItemPrices } from '../utils/profileStorage'
@@ -179,6 +188,67 @@ export default function ForecastPage() {
   const [currentHistoryId, setCurrentHistoryId] = useState(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [logError, setLogError] = useState(null)
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator !== 'undefined' ? navigator.onLine : true,
+  )
+  const [offlineBanner, setOfflineBanner] = useState('')
+  const [simulationResult, setSimulationResult] = useState(null)
+  const [simLoading, setSimLoading] = useState(false)
+  const [simError, setSimError] = useState('')
+  const [groupBuyingData, setGroupBuyingData] = useState(null)
+  const [groupBuyingLoading, setGroupBuyingLoading] = useState(false)
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true)
+      setOfflineBanner('')
+      flushOfflineLogQueue(submitDailyLog).catch(() => {})
+    }
+    const handleOffline = () => {
+      setIsOnline(false)
+      const cached = loadLastForecast()
+      if (cached?.forecast) {
+        setForecast((prev) => prev ?? cached.forecast)
+        setPhase((prev) => (prev === 'forecastReady' ? prev : 'forecastReady'))
+        setOfflineBanner(
+          `Offline — showing last saved forecast (${cached.meta?.date ?? cached.cachedAt?.slice(0, 10) ?? 'cached'}).`,
+        )
+      } else {
+        setOfflineBanner('Offline — connect to the internet to run a fresh forecast.')
+      }
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      handleOffline()
+    } else {
+      flushOfflineLogQueue(submitDailyLog).catch(() => {})
+    }
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!stall || !isOnline) return
+    let active = true
+    fetchGroupBuying({
+      lane: profile?.lane ?? 'Hazratganj',
+      date: dateInfo.dateString,
+    })
+      .then((data) => {
+        if (active && data) setGroupBuyingData(data)
+      })
+      .catch(() => {
+        // Non-fatal: group buying is optional.
+      })
+    return () => {
+      active = false
+    }
+  }, [stall?.id, profile?.lane, dateInfo.dateString, isOnline])
 
   const eventsToday = useMemo(() => {
     return getEventsForDate(dateInfo.dateString)
@@ -422,9 +492,78 @@ export default function ForecastPage() {
       return next
     })
 
+    saveLastForecast(plan, { date: dateInfo.dateString })
+    setOfflineBanner('')
+    setSimulationResult(null)
     setForecast(plan)
     setPendingApproval(null)
     setPhase('forecastReady')
+  }
+
+  /** What-If Simulation Mode (T3.5): runs on separate thread_id, never persisted. */
+  const handleSimulate = async (signalOverrides, scenarioLabel) => {
+    if (!stall || sessionIngredients.length < 1) return
+    setSimLoading(true)
+    setSimError('')
+    try {
+      const inventorySnapshot =
+        inventorySnapshotRef.current ??
+        buildInventorySnapshot(sessionIngredients, inventory)
+      const result = await requestForecastStream({
+        stall,
+        items: sessionIngredients,
+        inventory: inventorySnapshot,
+        dateLabel: dateInfo.dateLabel,
+        dayName: dateInfo.dayName,
+        weather: effectiveWeather,
+        weatherSignal: effectiveWeatherSignal,
+        eventSummary: eventSummaryForPrompt,
+        weeklyMultiplier,
+        eventMultiplier,
+        demandMultiplier: Number(demandMultiplier.toFixed(2)),
+        budgetInr: parsedBudgetInr,
+        itemPrices: normalizeItemPrices(itemPrices),
+        simulation: true,
+        signalOverrides,
+        lane: profile?.lane ?? 'Hazratganj',
+      })
+      if (result?.plan) {
+        setSimulationResult({ scenarioLabel, plan: result.plan })
+      }
+    } catch {
+      setSimError('Could not run What-If simulation right now. Check connection.')
+    } finally {
+      setSimLoading(false)
+    }
+  }
+
+  /** Group-buying opt-in / opt-out (T3.9). */
+  const handleToggleGroupOptIn = async (nextOptIn) => {
+    setGroupBuyingLoading(true)
+    try {
+      const buyItems = (forecast?.procurementList ?? [])
+        .map((row) => {
+          const parsedQty = Number.parseFloat(String(row.toBuy ?? '0'))
+          return {
+            item: row.item,
+            toBuy: Number.isFinite(parsedQty) ? parsedQty : 0,
+            unit: row.unit || 'units',
+          }
+        })
+        .filter((row) => row.toBuy > 0)
+
+      const updated = await toggleGroupBuyingOptIn({
+        optIn: nextOptIn,
+        lane: profile?.lane ?? 'Hazratganj',
+        date: dateInfo.dateString,
+        items: buyItems,
+      })
+      if (updated) setGroupBuyingData(updated)
+    } catch {
+      // Ignore quietly; current state remains unchanged.
+    } finally {
+      setGroupBuyingLoading(false)
+    }
   }
 
   const handleForecast = async () => {
@@ -584,6 +723,13 @@ export default function ForecastPage() {
             </Link>
           </div>
         </div>
+
+        {offlineBanner ? (
+          <div className="mt-4 flex items-center gap-3 rounded-2xl border border-[rgba(251,191,36,0.45)] bg-[rgba(251,191,36,0.12)] px-4 py-3 text-xs font-semibold text-[var(--color-text-primary)]">
+            <CloudOff size={16} className="shrink-0 text-[var(--color-warning)]" />
+            <span>{offlineBanner}</span>
+          </div>
+        ) : null}
 
         <SignalPanel
           weather={effectiveWeather}
@@ -835,14 +981,34 @@ export default function ForecastPage() {
         ) : null}
 
         {showForecast ? (
-          <ForecastOutput
-            forecast={forecast}
-            demandMultiplier={demandMultiplier}
-            showHindi={showHindi}
-            onToggleHindi={() => setShowHindi((prev) => !prev)}
-            onRegenerate={handleForecast}
-          />
+          <>
+            <ForecastOutput
+              forecast={forecast}
+              demandMultiplier={demandMultiplier}
+              showHindi={showHindi}
+              onToggleHindi={() => setShowHindi((prev) => !prev)}
+              onRegenerate={handleForecast}
+            />
+            <WhatIfPanel
+              baselineForecast={forecast}
+              simulationResult={simulationResult}
+              loading={simLoading}
+              error={simError}
+              onSimulate={handleSimulate}
+              onClear={() => setSimulationResult(null)}
+              disabled={!isOnline}
+            />
+          </>
         ) : null}
+
+        <GroupBuyingCard
+          data={groupBuyingData}
+          lane={profile?.lane ?? 'Hazratganj'}
+          optedIn={Boolean(groupBuyingData?.youOptedIn ?? profile?.groupBuyingOptIn)}
+          loading={groupBuyingLoading}
+          onToggleOptIn={handleToggleGroupOptIn}
+          disabled={!isOnline}
+        />
 
         {phase === 'forecastReady' ? (
           <FeedbackBar feedback={feedback} onFeedback={handleFeedback} />

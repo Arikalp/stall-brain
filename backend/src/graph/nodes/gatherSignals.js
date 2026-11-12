@@ -3,10 +3,10 @@ import { getWeatherTool } from '../../tools/weather.js'
 import { getFestivalsTool, getLocalEventsTool } from '../../tools/events.js'
 import { getCricketScheduleTool } from '../../tools/cricket.js'
 import { getMandiPricesTool } from '../../tools/prices.js'
-import { webSearchTool } from '../../tools/search.js'
+import { getSocialBuzzTool, webSearchTool } from '../../tools/search.js'
 import { eventImpact, weekdayPattern } from '../../data/baselines.js'
 import { clampMultiplier } from './forecast.js'
-import { dayNameFor, todayIso } from '../../utils/dates.js'
+import { addDays, dayNameFor, todayIso } from '../../utils/dates.js'
 
 /**
  * Tool-using signal node (T1.3). The LLM chooses which tools to call based on
@@ -26,17 +26,19 @@ export const signalTools = [
   getLocalEventsTool,
   getCricketScheduleTool,
   getMandiPricesTool,
+  getSocialBuzzTool,
   webSearchTool,
 ]
 
 const SELECTION_PROMPT = `You gather market signals for a street vendor's daily procurement forecast in Hazratganj, Lucknow.
 
 Choose which tools to call, guided by the stall type:
-- Weather (getWeather): always call once. Rain kills chai/bhutta/juice footfall; heat drives juice demand.
+- Weather (getWeather): always call once. Rain kills chai/bhutta/juice footfall; heat drives juice demand. Returns 3-day lookahead.
 - Festivals & weddings (getFestivals): call for flower stalls always (pooja + wedding demand), and for any stall when a festival may be near.
 - Local events/melas (getLocalEvents): call for snacks, chaat, balloon/toy stalls, and whenever crowds gather.
 - Cricket fixtures (getCricketSchedule): call for chai, snacks, chaat and balloon stalls on possible match days.
 - Mandi prices (getMandiPrices): call when the vendor needs price context; pass their ingredient names.
+- Social buzz (getSocialBuzz): call to scan public hashtags (#Hazratganj, #LucknowFoodies) for sudden viral crowd spikes or road closures.
 - Web search (webSearch): at most once, and only if you need to check something unusual the other tools cannot answer.
 
 Call several independent tools together in one turn when they apply. Do not call the same tool twice.`
@@ -134,11 +136,15 @@ export function buildSignalsFromOutputs({ outputs, errors, today, dayName, reque
     match: null,
     prices: [],
     social: [],
+    socialBuzz: null,
+    lookahead: [],
     errors: [...errors],
   }
 
   let weatherFallbackUsed = false
   let searchNote = null
+  let weatherLookahead = []
+  let allMatches = []
 
   for (const { name, output } of outputs) {
     let parsed
@@ -157,7 +163,11 @@ export function buildSignalsFromOutputs({ outputs, errors, today, dayName, reque
           footfallImpact: parsed.footfallImpact,
           recommendation: parsed.recommendation ?? '',
           temperature: parsed.temperature,
+          ...(parsed.rainProbabilityPeak != null
+            ? { rainProbabilityPeak: parsed.rainProbabilityPeak }
+            : {}),
         }
+        weatherLookahead = Array.isArray(parsed.lookahead) ? parsed.lookahead : []
         break
       }
       case 'getLocalEvents': {
@@ -176,7 +186,8 @@ export function buildSignalsFromOutputs({ outputs, errors, today, dayName, reque
         break
       }
       case 'getCricketSchedule': {
-        const match = parsed.matches?.[0]
+        allMatches = parsed.matches ?? []
+        const match = allMatches[0]
         if (match) {
           signals.match = {
             teams: match.teams,
@@ -189,6 +200,15 @@ export function buildSignalsFromOutputs({ outputs, errors, today, dayName, reque
       }
       case 'getMandiPrices': {
         signals.prices.push(...(parsed.prices ?? []))
+        break
+      }
+      case 'getSocialBuzz': {
+        signals.socialBuzz = parsed
+        if (parsed.hasSpike && parsed.label) {
+          signals.social.push(`${parsed.label}: ${parsed.summary ?? ''}`.trim())
+        } else if (parsed.available === false && parsed.summary) {
+          searchNote = parsed.summary
+        }
         break
       }
       case 'webSearch': {
@@ -221,6 +241,49 @@ export function buildSignalsFromOutputs({ outputs, errors, today, dayName, reque
     }
   }
 
+  // Build 3-day lookahead (T3.4): today, tomorrow, day+2.
+  const lookaheadDates = [0, 1, 2].map((offset) => addDays(today, offset))
+  signals.lookahead = lookaheadDates.map((d, idx) => {
+    const wDay =
+      weatherLookahead.find((w) => w.date === d) ??
+      (idx === 0 && signals.weather
+        ? {
+            date: d,
+            label: signals.weather.label,
+            footfallImpact: signals.weather.footfallImpact,
+            temperature: signals.weather.temperature,
+            rainProbabilityPeak: signals.weather.rainProbabilityPeak,
+          }
+        : null)
+    const dayEvents = (signals.events ?? []).filter((e) => !e.date || e.date === d)
+    const dayFestivals = (signals.festivals ?? []).filter((f) => !f.date || f.date === d)
+    const dayMatch =
+      allMatches.find((m) => m.date === d) ?? (idx === 0 ? signals.match : null)
+    return {
+      date: d,
+      weather: wDay
+        ? {
+            label: wDay.label,
+            footfallImpact: wDay.footfallImpact,
+            ...(wDay.temperature != null ? { temperature: wDay.temperature } : {}),
+            ...(wDay.rainProbabilityPeak != null
+              ? { rainProbabilityPeak: wDay.rainProbabilityPeak }
+              : {}),
+          }
+        : null,
+      events: dayEvents,
+      festivals: dayFestivals,
+      match: dayMatch
+        ? {
+            teams: dayMatch.teams,
+            venue: dayMatch.venue,
+            startTime: dayMatch.startTime,
+            expectedCrowd: dayMatch.expectedCrowd,
+          }
+        : null,
+    }
+  })
+
   // Event factor: from local events only (festivals/matches are separate factors
   // computed in the forecast node - no double counting).
   const eventFactor = (signals.events ?? []).reduce(
@@ -234,6 +297,7 @@ export function buildSignalsFromOutputs({ outputs, errors, today, dayName, reque
   const weekday = weekdayPattern[dayName] ?? request?.weeklyMultiplier ?? 1
 
   const weather = signals.weather?.footfallImpact ?? 1
+  const social = signals.socialBuzz?.factor ?? 1
 
   return {
     signals,
@@ -243,7 +307,8 @@ export function buildSignalsFromOutputs({ outputs, errors, today, dayName, reque
       weekday,
       festival: 1,
       match: 1,
-      combined: clampMultiplier(weather * event * weekday),
+      social,
+      combined: clampMultiplier(weather * event * weekday * social),
     },
     trace: [
       ...(weatherFallbackUsed
@@ -251,6 +316,120 @@ export function buildSignalsFromOutputs({ outputs, errors, today, dayName, reque
         : []),
       ...(searchNote ? [`webSearch: ${searchNote}`] : []),
       ...(signals.errors.length ? [`Tool errors: ${signals.errors.join(' | ')}`] : []),
+    ],
+  }
+}
+
+/**
+ * Applies deterministic What-If signal overrides for T3.5 simulation mode.
+ */
+export function applySignalOverrides(built, overrides = {}, today = todayIso()) {
+  if (!overrides || typeof overrides !== 'object') return built
+  const signals = {
+    ...built.signals,
+    events: [...(built.signals.events ?? [])],
+    social: [...(built.signals.social ?? [])],
+    lookahead: [...(built.signals.lookahead ?? [])],
+  }
+  const applied = []
+
+  if (
+    overrides.weatherLabel !== undefined ||
+    overrides.weatherFootfallImpact !== undefined ||
+    overrides.rainProbabilityPeak !== undefined
+  ) {
+    const impact = overrides.weatherFootfallImpact ?? signals.weather?.footfallImpact ?? 0.65
+    signals.weather = {
+      label: overrides.weatherLabel ?? signals.weather?.label ?? 'Heavy Rain (What-If Simulation)',
+      footfallImpact: impact,
+      recommendation:
+        impact < 0.85
+          ? 'What-If simulated rain/bad weather: cut perishables & keep stock lean.'
+          : 'Simulated weather scenario.',
+      temperature: signals.weather?.temperature ?? 26,
+      ...(overrides.rainProbabilityPeak != null
+        ? { rainProbabilityPeak: overrides.rainProbabilityPeak }
+        : {}),
+    }
+    if (signals.lookahead[0]) {
+      signals.lookahead[0] = {
+        ...signals.lookahead[0],
+        weather: {
+          label: signals.weather.label,
+          footfallImpact: signals.weather.footfallImpact,
+          ...(signals.weather.temperature != null ? { temperature: signals.weather.temperature } : {}),
+          ...(signals.weather.rainProbabilityPeak != null
+            ? { rainProbabilityPeak: signals.weather.rainProbabilityPeak }
+            : {}),
+        },
+      }
+    }
+    applied.push(`Weather -> ${signals.weather.label} (x${signals.weather.footfallImpact})`)
+  }
+
+  if (overrides.eventName || overrides.eventExpectedFootfall) {
+    const ev = {
+      name: overrides.eventName ?? 'Simulated Market Event',
+      date: today,
+      distanceKm: 0.4,
+      expectedFootfall: overrides.eventExpectedFootfall ?? 'high',
+    }
+    signals.events.push(ev)
+    applied.push(`Event -> ${ev.name} (${ev.expectedFootfall})`)
+  }
+
+  if (overrides.matchPresent === true) {
+    signals.match = signals.match ?? {
+      teams: 'LSG vs RCB (What-If Match)',
+      venue: 'Ekana Cricket Stadium',
+      startTime: '7:30 PM',
+      expectedCrowd: 'high',
+    }
+    applied.push(`Match -> ${signals.match.teams}`)
+  } else if (overrides.matchPresent === false) {
+    signals.match = null
+    applied.push('Match -> none')
+  }
+
+  if (overrides.socialSpike === true) {
+    signals.socialBuzz = {
+      hasSpike: true,
+      direction: 'up',
+      factor: 1.1,
+      label: 'Simulated #Hazratganj viral crowd spike',
+      topics: ['#Hazratganj', '#LucknowFoodies'],
+      summary: 'Simulated social buzz spike (+10% demand uplift).',
+      source: 'what-if-simulation',
+      available: true,
+      isMock: true,
+    }
+    signals.social.push(signals.socialBuzz.label)
+    applied.push('Social buzz -> #Hazratganj spike (x1.1)')
+  } else if (overrides.socialSpike === false) {
+    signals.socialBuzz = null
+    applied.push('Social buzz -> neutral')
+  }
+
+  const eventFactor = signals.events.reduce(
+    (max, event) => Math.max(max, eventImpact[event?.expectedFootfall] ?? 1),
+    1,
+  )
+  const weather = signals.weather?.footfallImpact ?? 1
+  const weekday = built.multiplier.weekday ?? 1
+  const social = signals.socialBuzz?.factor ?? 1
+
+  return {
+    signals,
+    multiplier: {
+      ...built.multiplier,
+      weather,
+      event: eventFactor,
+      social,
+      combined: clampMultiplier(weather * eventFactor * weekday * social),
+    },
+    trace: [
+      ...built.trace,
+      ...(applied.length ? [`What-If simulation overrides: ${applied.join('; ')}`] : []),
     ],
   }
 }
@@ -276,13 +455,16 @@ export async function gatherSignals(state, deps = {}) {
     state,
   })
 
-  const built = buildSignalsFromOutputs({
+  const rawBuilt = buildSignalsFromOutputs({
     outputs: run.outputs,
     errors: run.errors,
     today,
     dayName,
     request,
   })
+  const built = state.signalOverrides
+    ? applySignalOverrides(rawBuilt, state.signalOverrides, today)
+    : rawBuilt
 
   const toolTrace = run.trace.length ? run.trace : ['No tools were needed']
 
@@ -290,12 +472,15 @@ export async function gatherSignals(state, deps = {}) {
     signals: built.signals,
     multiplier: built.multiplier,
     trace: [
-      `${dayName} (${today})`,
+      `${dayName} (${today})${state.simulation ? ' [WHAT-IF SIMULATION]' : ''}`,
       `Signals gathered in ${run.turns} turn(s), ${run.totalCalls} tool call(s)`,
       ...toolTrace,
       `Weather: ${built.signals.weather?.label ?? 'unknown'} (impact x${built.multiplier.weather})`,
       `Events: ${built.signals.events.length} local event(s) (impact x${built.multiplier.event})`,
       `Festivals: ${built.signals.festivals.length}, match: ${built.signals.match ? built.signals.match.teams : 'none'}`,
+      ...(built.signals.socialBuzz?.hasSpike
+        ? [`Social buzz: ${built.signals.socialBuzz.label} (x${built.multiplier.social})`]
+        : []),
       `Weekday factor (${dayName}): x${built.multiplier.weekday}`,
       `Combined demand multiplier: x${built.multiplier.combined}`,
       ...built.trace,

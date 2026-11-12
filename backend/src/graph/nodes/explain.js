@@ -93,6 +93,10 @@ export function buildExplanationPrompt(state) {
       ? `\nEconomics (code-computed): est. cost ₹${financials.totalCostInr}, expected revenue ₹${financials.expectedRevenueInr}, expected profit ₹${financials.expectedProfitInr} (${financials.marginPercent}% margin)${financials.budgetInr != null ? `, budget cap ₹${financials.budgetInr}` : ''}`
       : ''
 
+  const lookaheadNote = buildTomorrowOutlook(state.signals, state.draftPlan)
+    ? `\nTomorrow & 3-day outlook: ${buildTomorrowOutlook(state.signals, state.draftPlan)}`
+    : ''
+
   return `Date: ${state.request?.dateLabel ?? 'today'} (${state.request?.dayName ?? ''})
 Stall: ${state.profile?.stallLabel ?? ''}
 Weather: ${weatherLine(state.signals)}
@@ -102,9 +106,75 @@ Combined demand multiplier: x${state.multiplier?.combined ?? 1}
 VALIDATED PLAN (do not change any numbers):
 ${itemLines}${sufficient}
 Expected customers: ${plan.expectedCustomers}
-Confidence: ${plan.confidenceLevel}${econNote}${errorNote}${biasNote}
+Confidence: ${plan.confidenceLevel}${econNote}${lookaheadNote}${errorNote}${biasNote}
 
 Write the briefing.`
+}
+
+/**
+ * Builds a concise bilingual Tomorrow & 3-day outlook string from signals.lookahead (T3.4).
+ */
+export function buildTomorrowOutlook(signals, draftPlan = null) {
+  const lookahead = Array.isArray(signals?.lookahead) ? signals.lookahead : []
+  const tomorrow = lookahead[1]
+  const dayPlus2 = lookahead[2]
+  if (!tomorrow && !dayPlus2) return ''
+
+  const partsEn = []
+  const partsHi = []
+
+  if (tomorrow) {
+    const wLabel = tomorrow.weather?.label ?? 'Weather normal'
+    const rainNote =
+      tomorrow.weather?.rainProbabilityPeak >= 50
+        ? ` (${tomorrow.weather.rainProbabilityPeak}% rain chance)`
+        : ''
+    const evNames = [
+      ...(tomorrow.festivals ?? []).map((f) => f.name),
+      ...(tomorrow.events ?? []).map((e) => e.name),
+      ...(tomorrow.match ? [`Cricket: ${tomorrow.match.teams}`] : []),
+    ]
+    const evText = evNames.length ? `; ${evNames.join(', ')}` : ''
+    const badTomorrow =
+      (tomorrow.weather?.footfallImpact ?? 1) < 0.85 ||
+      (tomorrow.weather?.rainProbabilityPeak ?? 0) >= 65
+
+    partsEn.push(
+      `Tomorrow (${tomorrow.date}): ${wLabel}${rainNote}${evText}.${
+        badTomorrow
+          ? ' Today’s short-life perishables kept lean to avoid spoilage.'
+          : evNames.length
+            ? ' Busy day ahead — dry goods pre-buffered.'
+            : ''
+      }`,
+    )
+    partsHi.push(
+      `कल (${tomorrow.date}): ${wLabel}${rainNote}${evText}।${
+        badTomorrow
+          ? ' खराब मौसम के कारण आज जल्दी खराब होने वाला सामान कम रखा गया है।'
+          : evNames.length
+            ? ' कल ज़्यादा भीड़ रहेगी — सूखा सामान थोड़ा बढ़ाया गया है।'
+            : ''
+      }`,
+    )
+  }
+
+  if (dayPlus2) {
+    const d2Events = [
+      ...(dayPlus2.festivals ?? []).map((f) => f.name),
+      ...(dayPlus2.events ?? []).map((e) => e.name),
+      ...(dayPlus2.match ? [`Cricket: ${dayPlus2.match.teams}`] : []),
+    ]
+    if (d2Events.length || dayPlus2.weather?.label) {
+      partsEn.push(`Day+2 (${dayPlus2.date}): ${dayPlus2.weather?.label ?? ''}${d2Events.length ? ` — ${d2Events.join(', ')}` : ''}.`)
+    }
+  }
+
+  if (draftPlan?.spoilageGuardApplied && partsEn.length === 0) {
+    partsEn.push('Perishable shelf-life caps applied today.')
+  }
+
+  return `${partsEn.join(' ')} || ${partsHi.join(' ')}`.replace(/\s*\|\|\s*$/, '')
 }
 
 /** Deterministic fallback: bilingual text built from plan numbers in code. */
@@ -200,6 +270,8 @@ export async function explain(state, deps = {}) {
       budgetInr: state.budgetInr,
     })
 
+  const tomorrowOutlook = buildTomorrowOutlook(state.signals, state.draftPlan) || null
+
   return {
     plan: {
       ...state.plan,
@@ -209,6 +281,9 @@ export async function explain(state, deps = {}) {
       specialAdvice: explanation.specialAdvice,
       confidenceReason: explanation.confidenceReason,
       financials,
+      tomorrowOutlook,
+      perishableNotes: state.draftPlan?.perishableNotes ?? [],
+      ...(state.simulation ? { simulation: true } : {}),
     },
     trace: [
       `Explained plan (${method === 'fallback' ? 'deterministic fallback text' : 'LLM briefing'}, confidence: ${state.plan.confidenceLevel})`,

@@ -22,6 +22,14 @@ export const AgentState = Annotation.Root({
   budgetInr: Annotation(),
   /** { [item]: { buyPrice?, sellPrice? } } per-item vendor pricing overrides (T3.2). */
   itemPrices: Annotation(),
+  /** What-if simulation mode flag (T3.5): runs on separate thread_id, never saved to Firestore. */
+  simulation: Annotation(),
+  /** Overridden signals supplied by What-If UI (T3.5). */
+  signalOverrides: Annotation(),
+  /** Vendor market lane for local & group-buying context (T3.9). */
+  lane: Annotation(),
+  /** Whether vendor opted into group-buying aggregation (T3.9). */
+  groupBuyingOptIn: Annotation(),
 
   /** The original validated request payload (bridge until the frontend sends the new shape). */
   request: Annotation(),

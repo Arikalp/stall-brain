@@ -49,6 +49,15 @@ export async function humanApproval(state) {
     throw new Error('humanApproval node reached without a plan')
   }
 
+  // T3.5: What-If simulation mode never pauses for approval or writes to Firestore.
+  if (state.simulation) {
+    return {
+      approvedPlan: state.plan,
+      approvedEdits: [],
+      trace: ['Simulation mode: skipped human approval'],
+    }
+  }
+
   // Pause here; the vendor's decision arrives as the resume value:
   // { approved: boolean, editedPlan?: ForecastResult }
   const decision = interrupt({

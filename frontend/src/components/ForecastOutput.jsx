@@ -351,7 +351,33 @@ export default function ForecastOutput({
               </div>
             </div>
           ) : null}
+
+          {Array.isArray(forecast.perishableNotes) && forecast.perishableNotes.length > 0 ? (
+            <div className="mt-4 rounded-2xl border border-[rgba(251,191,36,0.35)] bg-[rgba(251,191,36,0.08)] p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.15em] text-(--color-warning)">
+                Shelf-Life &amp; Spoilage Protection
+              </p>
+              <ul className="mt-2 space-y-1 text-xs text-(--color-text-secondary)">
+                {forecast.perishableNotes.map((note, idx) => (
+                  <li key={idx}>• {note}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
+
+        {forecast.tomorrowOutlook ? (
+          <div className="mt-6 rounded-2xl border border-(--color-border) bg-(--color-bg-input) p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-(--color-primary)">
+              Tomorrow&apos;s Outlook (3-Day Lookahead)
+            </p>
+            <p className="mt-2 text-sm text-(--color-text-primary)">
+              {showHindi
+                ? String(forecast.tomorrowOutlook).split('||').pop()?.trim()
+                : String(forecast.tomorrowOutlook).split('||')[0]?.trim()}
+            </p>
+          </div>
+        ) : null}
 
         <div className="mt-6 rounded-2xl border border-(--color-border) bg-[rgba(245,158,11,0.12)] p-5">
           <div className="flex items-start gap-3">

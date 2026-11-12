@@ -1,5 +1,6 @@
-import { saveRun } from '../../store/firestore.js'
+import { recordGroupDemand, saveRun } from '../../store/firestore.js'
 import { updateBiasFromEdits } from '../../learning/bias.js'
+import { parseQuantity } from './validate.js'
 
 /**
  * Persists the run (T1.8/T2.2): the approved plan, the vendor's edits
@@ -11,6 +12,10 @@ import { updateBiasFromEdits } from '../../learning/bias.js'
  * learns from their adjustments without waiting for end-of-day logs.
  */
 export async function save(state, deps = {}) {
+  if (state.simulation) {
+    return { trace: ['Simulation mode: run not saved to Firestore'] }
+  }
+
   const plan = state.approvedPlan ?? state.plan
 
   if (!plan) {
@@ -47,12 +52,38 @@ export async function save(state, deps = {}) {
     }
   }
 
+  // T3.9: If vendor opted into same-lane group buying, share anonymized buy list.
+  let groupTrace = []
+  if (state.groupBuyingOptIn && state.vendorId && state.date && !deps.skipFirestore) {
+    const groupItems = (plan.procurementList ?? [])
+      .map((row) => ({
+        item: row.item,
+        toBuy: parseQuantity(row.toBuy)?.value ?? 0,
+        unit: row.unit,
+      }))
+      .filter((row) => row.toBuy > 0)
+    if (groupItems.length) {
+      await recordGroupDemand(
+        {
+          vendorId: state.vendorId,
+          lane: state.lane ?? 'Hazratganj',
+          date: state.date,
+          items: groupItems,
+          optIn: true,
+        },
+        { db: deps.db },
+      ).catch(() => null)
+      groupTrace = [`Group demand updated for ${state.lane ?? 'Hazratganj'}`]
+    }
+  }
+
   return {
     trace: [
       result.saved
         ? `Run ${state.runId} saved to Firestore`
         : `Run not persisted: ${result.reason}`,
       ...biasTrace,
+      ...groupTrace,
     ],
   }
 }

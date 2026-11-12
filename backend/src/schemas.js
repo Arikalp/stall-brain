@@ -48,6 +48,7 @@ export const DemandMultiplierSchema = z.object({
   weekday: z.number(),
   festival: z.number().default(1),
   match: z.number().default(1),
+  social: z.number().default(1),
   combined: z.number(),
 })
 
@@ -79,6 +80,34 @@ export const PriceSignalSchema = z.object({
   isMock: z.boolean().default(false),
 })
 
+export const LookaheadDaySchema = z.object({
+  date: z.string().min(1),
+  weather: z
+    .object({
+      label: z.string().min(1),
+      footfallImpact: z.number(),
+      temperature: z.number().optional(),
+      rainProbabilityPeak: z.number().optional(),
+    })
+    .nullable()
+    .optional(),
+  events: z.array(EventSignalSchema).default([]),
+  festivals: z.array(FestivalSignalSchema).default([]),
+  match: MatchSignalSchema.nullable().optional(),
+})
+
+export const SocialBuzzSchema = z.object({
+  hasSpike: z.boolean().default(false),
+  direction: z.enum(['up', 'down', 'neutral']).default('neutral'),
+  factor: z.number().default(1),
+  label: z.string().default('Normal social activity'),
+  topics: z.array(z.string()).default([]),
+  summary: z.string().default(''),
+  source: z.string().default('tavily'),
+  available: z.boolean().default(false),
+  isMock: z.boolean().default(true),
+})
+
 /**
  * Everything the agent gathered about the world today.
  * `errors` records tool failures; a failed tool never crashes a run.
@@ -90,6 +119,7 @@ export const SignalsSchema = z.object({
       footfallImpact: z.number(),
       recommendation: z.string().default(''),
       temperature: z.number().optional(),
+      rainProbabilityPeak: z.number().optional(),
     })
     .nullable()
     .optional(),
@@ -98,6 +128,8 @@ export const SignalsSchema = z.object({
   match: MatchSignalSchema.nullable().optional(),
   prices: z.array(PriceSignalSchema).default([]),
   social: z.array(z.string().min(1)).default([]),
+  socialBuzz: SocialBuzzSchema.optional(),
+  lookahead: z.array(LookaheadDaySchema).default([]),
   errors: z.array(z.string().min(1)).default([]),
 })
 
@@ -132,6 +164,10 @@ export const VendorProfileSchema = z.object({
   ingredients: z.array(z.string().min(1)).default([]),
   dailyBudgetInr: z.coerce.number().nonnegative().nullable().optional(),
   itemPrices: z.record(z.string().min(1), ItemPriceSchema).optional(),
+  whatsappOptIn: z.boolean().default(false),
+  whatsappPhone: z.string().trim().max(24).optional(),
+  lane: z.string().trim().min(1).max(60).default('Hazratganj'),
+  groupBuyingOptIn: z.boolean().default(false),
 })
 
 /** Validator node output (the code-based critic). */
@@ -187,6 +223,8 @@ export const DraftPlanSchema = z.object({
   totalEstimatedProfit: z.number().optional(),
   budgetConstrained: z.boolean().optional(),
   pricingIsMock: z.boolean().optional(),
+  perishableNotes: z.array(z.string()).optional(),
+  spoilageGuardApplied: z.boolean().optional(),
 })
 
 const weatherShape = {
@@ -221,6 +259,20 @@ export const ForecastRequestSchema = z.object({
   demandMultiplier: z.coerce.number().optional(),
   budgetInr: z.coerce.number().nonnegative().nullable().optional(),
   itemPrices: z.record(z.string().min(1), ItemPriceSchema).optional(),
+  simulation: z.boolean().default(false),
+  signalOverrides: z
+    .object({
+      weatherLabel: z.string().min(1).optional(),
+      weatherFootfallImpact: z.coerce.number().optional(),
+      rainProbabilityPeak: z.coerce.number().optional(),
+      eventName: z.string().min(1).optional(),
+      eventExpectedFootfall: z.enum(['low', 'medium', 'high']).optional(),
+      matchPresent: z.boolean().optional(),
+      socialSpike: z.boolean().optional(),
+    })
+    .optional(),
+  lane: z.string().trim().min(1).max(60).optional(),
+  groupBuyingOptIn: z.boolean().optional(),
 })
 
 // NOTE: This schema must stay transform-free (no coerce/preprocess/default) so it
@@ -277,6 +329,9 @@ export const PlanFinancialsSchema = z.object({
 
 export const EnrichedForecastResultSchema = ForecastResultSchema.extend({
   financials: PlanFinancialsSchema.optional(),
+  tomorrowOutlook: z.string().nullish(),
+  simulation: z.boolean().optional(),
+  perishableNotes: z.array(z.string()).optional(),
 })
 
 /** Voice inventory parsing schemas (T3.1). */

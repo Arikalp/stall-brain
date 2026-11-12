@@ -47,6 +47,7 @@ function buildResponse(finalState) {
     status: 'DONE',
     runId: finalState.runId,
     plan,
+    simulation: Boolean(finalState.simulation),
     trace: finalState.trace ?? [],
   }
 }
@@ -79,7 +80,8 @@ forecastRouter.post(
       })
     }
 
-    const runId = randomUUID()
+    const isSimulation = Boolean(parsedBody.data.simulation)
+    const runId = isSimulation ? `sim-${randomUUID()}` : randomUUID()
     const graph = getForecastGraph()
 
     try {
@@ -201,7 +203,8 @@ forecastRouter.post(
       })
     }
 
-    const runId = randomUUID()
+    const isSimulation = Boolean(parsedBody.data.simulation)
+    const runId = isSimulation ? `sim-${randomUUID()}` : randomUUID()
 
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
@@ -262,7 +265,7 @@ forecastRouter.post(
           })
           const plan = snapshot?.values?.approvedPlan ?? snapshot?.values?.plan
           if (plan) {
-            send('done', { runId, plan })
+            send('done', { runId, plan, simulation: isSimulation })
           } else {
             send('error', { message: 'The run ended without a plan.' })
           }

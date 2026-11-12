@@ -8,6 +8,9 @@ import { forecastRouter } from './routes/forecast.js'
 import { logsRouter } from './routes/logs.js'
 import { profileRouter } from './routes/profile.js'
 import { voiceRouter } from './routes/voice.js'
+import { whatsappRouter } from './routes/whatsapp.js'
+import { groupBuyingRouter } from './routes/groupBuying.js'
+import { scheduleMorningWhatsappCron } from './jobs/whatsappMorning.js'
 
 export function createApp() {
   const app = express()
@@ -39,6 +42,8 @@ export function createApp() {
   app.use('/api', logsRouter)
   app.use('/api', profileRouter)
   app.use('/api', voiceRouter)
+  app.use('/api', whatsappRouter)
+  app.use('/api', groupBuyingRouter)
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'NOT_FOUND', message: 'Unknown endpoint.' })
@@ -65,6 +70,10 @@ export async function start() {
   initFirebaseAdmin()
 
   const app = createApp()
+  const cronTask = scheduleMorningWhatsappCron()
+  if (cronTask) {
+    console.log('[server] WhatsApp morning cron scheduled (06:00 Asia/Kolkata)')
+  }
   const server = app.listen(config.port, () => {
     console.log(
       `[server] Bazaar Brain backend listening on http://localhost:${config.port} (${config.nodeEnv})`,

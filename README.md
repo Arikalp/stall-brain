@@ -90,7 +90,17 @@ Runs stream step-by-step progress over `POST /api/forecast/stream` (`fetch` + `R
 Generates English and spoken-style Hindi summaries (`explain.js`) after validation, with a one-click toggle in `ForecastOutput.jsx`.
 
 **End-of-Day Sales Log & Bias Correction (Phase 2)**  
-`EndOfDayLog.jsx` lets vendors log per-item outcomes (`Sold out early`, `Just right`, `Leftover` small/medium/large, `Wasted`) in two taps per item (`POST /api/logs`). `backend/src/learning/bias.js` updates per-item and per-weekday EMA factors in Firestore (`vendors/{uid}.biasFactors`) from both daily logs and approval edits, and explains adjustments back to the vendor.
+`EndOfDayLog.jsx` lets vendors log per-item outcomes (`Sold out early`, `Just right`, `Leftover` small/medium/large, `Wasted`) in two taps per item (`POST /api/logs`), with offline queuing (`offlineStore.js`) when offline. `backend/src/learning/bias.js` updates per-item and per-weekday EMA factors in Firestore (`vendors/{uid}.biasFactors`) from both daily logs and approval edits, and explains adjustments back to the vendor.
+
+**Phase 3 Capabilities (Voice, Economics, Spoilage, Lookahead, What-If, WhatsApp, Social, PWA & Group Buying)**  
+- **Hindi Voice Input & Spoken Output**: `VoiceInventoryInput.jsx` uses Web Speech API (`hi-IN`) + `POST /api/voice/parse-inventory` to parse spoken inventory updates into confirmation chips; `ForecastOutput.jsx` speaks the Hindi briefing via `speechSynthesis`.
+- **Profit & Daily Budget Optimization**: `backend/src/utils/economics.js` computes per-item cost, revenue, and margin using vendor buy/sell overrides or mock Lucknow mandi prices, maximizing profit inside `dailyBudgetInr` and validated by `validate.js`.
+- **Shelf-Life & 3-Day Lookahead**: `baselines.js` tags perishables (`shelfLifeDays`, `perishable`) and `weather.js` / `events.js` / `cricket.js` provide a 3-day lookahead; `forecast.js` & `validate.js` cap short-life items before bad tomorrow weather and surface `Tomorrow's Outlook`.
+- **What-If Simulation Mode**: `WhatIfPanel.jsx` lets vendors run rain/event/match/social scenarios on a separate `sim-*` thread (`simulation: true`, skipping `interrupt()` and Firestore writes) with side-by-side baseline comparison.
+- **Crowd & Social Signals**: `getSocialBuzzTool` in `backend/src/tools/search.js` scans `#Hazratganj` / `#LucknowFoodies` news/social buzz and applies modest demand uplift or closure alerts.
+- **WhatsApp Morning Delivery (`node-cron`)**: `backend/src/jobs/whatsappMorning.js` schedules 6:00 AM IST Hindi briefings for opted-in vendors (`WHATSAPP_TOKEN` / Twilio or dry-run preview) and `backend/src/routes/whatsapp.js` handles replies (`1`, edits, `STOP`).
+- **PWA & Offline Mode**: `vite-plugin-pwa` (`src/sw.js`) caches app shell assets (`dist/manifest.webmanifest`, `dist/sw.js`), shows cached last forecasts offline, and queues/syncs offline EOD logs automatically.
+- **Lane Group Buying**: `backend/src/routes/groupBuying.js` + `GroupBuyingCard.jsx` pool anonymized daily demand per Lucknow market lane (`"X vendors nearby need <item> today"`).
 
 ---
 
@@ -165,7 +175,12 @@ stall-brain/
 │   │   ├── routes/
 │   │   │   ├── forecast.js          # POST /api/forecast, /api/forecast/stream, /api/forecast/resume
 │   │   │   ├── logs.js              # POST /api/logs, GET /api/logs
-│   │   │   └── profile.js           # GET/PUT /api/profile, GET /api/runs
+│   │   │   ├── profile.js           # GET/PUT /api/profile, GET /api/runs
+│   │   │   ├── voice.js             # POST /api/voice/parse-inventory
+│   │   │   ├── whatsapp.js          # GET/POST /api/whatsapp/webhook, POST /api/whatsapp/preview
+│   │   │   └── groupBuying.js       # GET /api/group-buying, POST /api/group-buying/opt-in
+│   │   ├── jobs/
+│   │   │   └── whatsappMorning.js   # 6 AM IST node-cron WhatsApp dispatch + Hindi formatter
 │   │   ├── graph/
 │   │   │   ├── state.js             # AgentState (Annotation.Root)
 │   │   │   ├── build.js             # StateGraph assembly + conditional edges + checkpointer
@@ -179,19 +194,20 @@ stall-brain/
 │   │   │       ├── humanApproval.js # interrupt() pause/resume + edit diffing
 │   │   │       └── save.js          # Persist run to Firestore + update bias from edits
 │   │   ├── tools/                   # weather.js, events.js (festivals + local events),
-│   │   │                            #   cricket.js, prices.js, search.js
+│   │   │                            #   cricket.js, prices.js, search.js (web + social buzz)
 │   │   ├── data/                    # baselines.js, cricket.js, festivals.js, prices.js
 │   │   ├── learning/
 │   │   │   └── bias.js              # EMA bias correction engine (T2.3)
 │   │   ├── store/
-│   │   │   ├── firestore.js         # Firestore CRUD for profiles, runs, logs, biasFactors
+│   │   │   ├── firestore.js         # Firestore CRUD for profiles, runs, logs, bias, group demand
 │   │   │   └── firestoreCheckpointer.js
 │   │   └── utils/
-│   │       └── dates.js             # Asia/Kolkata date helpers
-│   ├── tests/                       # 13 Vitest suites:
-│   │                                #   approval, bias, explain, firestore, forecast,
-│   │                                #   gatherSignals, graph, logs, profile, routes,
-│   │                                #   schemas, tools, validate
+│   │       ├── dates.js             # Asia/Kolkata date helpers
+│   │       └── economics.js         # Unit cost, revenue, margin & budget optimizer
+│   ├── tests/                       # 16 Vitest suites:
+│   │                                #   approval, bias, economics, explain, firestore, forecast,
+│   │                                #   gatherSignals, graph, logs, phase3, profile, routes,
+│   │                                #   schemas, tools, validate, voice
 │   ├── scripts/                     # dump-mermaid.mjs, probe-interrupt.mjs,
 │   │                                #   smoke-graph.mjs, smoke-degraded.mjs
 │   ├── package.json
@@ -279,6 +295,11 @@ All `/api/*` endpoints require `Authorization: Bearer <firebase_id_token>` and a
 | `GET /api/profile` | Fetch saved vendor profile from Firestore |
 | `PUT /api/profile` | Save/update vendor profile in Firestore |
 | `GET /api/runs` | Fetch recent saved forecast runs (default 5, max 30) |
+| `POST /api/voice/parse-inventory` | Parse Hindi/Hinglish voice transcripts into inventory entries |
+| `GET/POST /api/whatsapp/webhook` | Meta/Twilio webhook verification & vendor reply handling (`1`, edits, `STOP`) |
+| `POST /api/whatsapp/preview` | Preview/test-send compact Hindi morning WhatsApp briefing |
+| `GET /api/group-buying` | Fetch anonymized same-lane item demand across nearby vendors |
+| `POST /api/group-buying/opt-in` | Share or withdraw anonymized item quantities for group buying |
 
 ---
 
@@ -316,11 +337,10 @@ npm test
 
 ---
 
-## 🔭 What's Next (Phases 3–4)
+## 🔭 What's Next (Phase 4)
 
 | Phase | Planned Features |
 |---|---|
-| **Phase 3** | Hindi voice input/output · profit & budget optimization · shelf-life & spoilage awareness · 3-day lookahead · what-if simulation mode · WhatsApp morning delivery (`node-cron`) · PWA & offline log sync · crowd/social buzz · group buying |
 | **Phase 4** | Backtest & eval harness (`MAPE`, stock-out/waste rates) · LangSmith/Langfuse tracing · caching, timeouts & LLM-down deterministic fallback · CI test workflow |
 
 See [`Plans.md`](./Plans.md) for the complete task-by-task roadmap.

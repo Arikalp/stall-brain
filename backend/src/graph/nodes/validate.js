@@ -1,5 +1,7 @@
 import { ValidationResultSchema } from '../../schemas.js'
+import { getShelfLifeEntry } from '../../data/baselines.js'
 import { computePlanFinancials } from '../../utils/economics.js'
+import { analyzeTomorrowLookahead, getPerishableCap } from './forecast.js'
 
 /** Maximum number of planner attempts before falling back to the draft. */
 export const MAX_PLAN_RETRIES = 3
@@ -42,6 +44,8 @@ export function validatePlan({
   prices,
   itemPrices,
   signalErrors,
+  signals,
+  stallType,
 }) {
   const errors = []
 
@@ -140,7 +144,32 @@ export function validatePlan({
     }
   }
 
-  // 5. Perishable shelf-life caps arrive with T3.3 ingredient data.
+  // 5. Perishable shelf-life caps (T3.3 + T3.4): never over-buy fresh items
+  // beyond safe shelf life or into bad tomorrow weather.
+  const lookaheadSummary = analyzeTomorrowLookahead(signals)
+  for (const item of plan.procurementList ?? []) {
+    const shelf = getShelfLifeEntry(item.item, stallType)
+    if (!shelf.perishable) continue
+    const totalNeeded = parseQuantity(item.totalNeeded)
+    if (!totalNeeded) continue
+    const draftItem = draftItems.find(
+      (draft) => normalizeName(draft.item) === normalizeName(item.item),
+    )
+    const cap = getPerishableCap(
+      {
+        baseline: draftItem?.baseline ?? shelf.baseline,
+        perishable: true,
+        shelfLifeDays: shelf.shelfLifeDays,
+      },
+      draftPlan?.combinedMultiplier ?? 1,
+      lookaheadSummary,
+    )
+    if (totalNeeded.value > cap + ARITHMETIC_TOLERANCE) {
+      errors.push(
+        `"${item.item}" totalNeeded (${item.totalNeeded}) exceeds perishable shelf-life cap (${cap} ${shelf.unit}, ${shelf.shelfLifeDays}d${lookaheadSummary.tomorrowBadWeather && shelf.shelfLifeDays <= 2 ? ' + bad weather tomorrow' : ''}). Reduce quantity to avoid spoilage.`,
+      )
+    }
+  }
 
   return ValidationResultSchema.parse({ valid: errors.length === 0, errors })
 }
@@ -206,6 +235,8 @@ export async function validate(state) {
     prices: state.signals?.prices,
     itemPrices: state.itemPrices,
     signalErrors: state.signals?.errors,
+    signals: state.signals,
+    stallType: state.profile?.stallType,
   })
 
   if (result.valid) {

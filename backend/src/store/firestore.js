@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { getFirestore } from 'firebase-admin/firestore'
 import { initFirebaseAdmin } from '../middleware/auth.js'
 
@@ -219,5 +220,201 @@ export async function getRecentRuns(vendorId, limit = 5, { db } = {}) {
   } catch (error) {
     console.warn('[store] getRecentRuns failed:', error?.message ?? error)
     return []
+  }
+}
+
+export function normalizeWhatsappPhone(phone) {
+  const digits = String(phone ?? '').replace(/\D/g, '')
+  if (digits.length >= 10) return digits.slice(-10)
+  return digits
+}
+
+/**
+ * Lists vendors opted into morning WhatsApp delivery (T3.6). Degrades to [].
+ */
+export async function getWhatsappOptedInVendors({ db } = {}) {
+  try {
+    const database = db ?? getDb()
+    const snap = await database
+      .collection('vendors')
+      .where('profile.whatsappOptIn', '==', true)
+      .get()
+    return snap.docs.map((doc) => ({
+      vendorId: doc.id,
+      profile: doc.data().profile ?? {},
+    }))
+  } catch (error) {
+    console.warn('[store] getWhatsappOptedInVendors failed:', error?.message ?? error)
+    return []
+  }
+}
+
+/**
+ * Finds a vendor by their configured WhatsApp number (T3.6 webhook handling).
+ */
+export async function findVendorByWhatsappPhone(phone, { db } = {}) {
+  const target = normalizeWhatsappPhone(phone)
+  if (!target) return null
+  const optedIn = await getWhatsappOptedInVendors({ db })
+  return (
+    optedIn.find(
+      (v) => normalizeWhatsappPhone(v.profile?.whatsappPhone) === target,
+    ) ?? null
+  )
+}
+
+const inMemoryGroupDemand = new Map()
+
+export function clearInMemoryGroupDemand() {
+  inMemoryGroupDemand.clear()
+}
+
+export function anonymizeVendorId(vendorId) {
+  return createHash('sha256')
+    .update(String(vendorId ?? ''))
+    .digest('hex')
+    .slice(0, 12)
+}
+
+function groupDocId(date, lane) {
+  const slug = String(lane || 'hazratganj')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+  return `${date}_${slug || 'hazratganj'}`
+}
+
+export function aggregateGroupContributions(contributions = {}, selfHash = null) {
+  const byItem = new Map()
+  for (const [vHash, entry] of Object.entries(contributions)) {
+    if (!entry?.optIn) continue
+    for (const row of entry.items ?? []) {
+      const itemName = String(row.item ?? '').trim().toLowerCase()
+      const qty = Number(row.toBuy ?? row.quantity ?? 0)
+      if (!itemName || !Number.isFinite(qty) || qty <= 0) continue
+      const existing = byItem.get(itemName) ?? {
+        item: itemName,
+        unit: row.unit || 'units',
+        vendorCount: 0,
+        totalQuantity: 0,
+        youJoined: false,
+      }
+      existing.vendorCount += 1
+      existing.totalQuantity = Math.round((existing.totalQuantity + qty) * 100) / 100
+      if (selfHash && vHash === selfHash) existing.youJoined = true
+      byItem.set(itemName, existing)
+    }
+  }
+
+  return [...byItem.values()].sort(
+    (a, b) => b.vendorCount - a.vendorCount || b.totalQuantity - a.totalQuantity,
+  )
+}
+
+/**
+ * Records or withdraws anonymized procurement demand for same-lane group buying (T3.9).
+ */
+export async function recordGroupDemand(
+  { vendorId, lane = 'Hazratganj', date, items = [], optIn = true },
+  { db } = {},
+) {
+  if (!vendorId || !date) {
+    return { saved: false, reason: 'missing vendorId or date' }
+  }
+  const key = groupDocId(date, lane)
+  const vHash = anonymizeVendorId(vendorId)
+  const entry = {
+    optIn: Boolean(optIn),
+    items: (items ?? []).map((i) => ({
+      item: String(i.item ?? '').trim().toLowerCase(),
+      toBuy: Number(i.toBuy ?? i.quantity ?? 0),
+      unit: String(i.unit ?? 'units'),
+    })),
+    updatedAt: new Date().toISOString(),
+  }
+
+  // Always update in-memory mirror so local single-process mode stays consistent.
+  const localMap = inMemoryGroupDemand.get(key) ?? {}
+  if (optIn) {
+    localMap[vHash] = entry
+  } else {
+    delete localMap[vHash]
+  }
+  inMemoryGroupDemand.set(key, localMap)
+
+  if (db === null) {
+    return { saved: true, key, source: 'memory' }
+  }
+
+  try {
+    const database = db ?? getDb()
+    const docRef = database.collection('groupDemand').doc(key)
+    const work = async () => {
+      const snap = await docRef.get()
+      const current = snap.exists ? (snap.data()?.contributions ?? {}) : {}
+      if (optIn) {
+        current[vHash] = entry
+      } else {
+        delete current[vHash]
+      }
+      await docRef.set(
+        { lane, date, contributions: current, updatedAt: new Date().toISOString() },
+        { merge: true },
+      )
+    }
+    await Promise.race([
+      work(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Firestore group-buying write timeout')), 1500),
+      ),
+    ])
+    return { saved: true, key, source: 'firestore' }
+  } catch (error) {
+    return { saved: true, key, source: 'memory', fallbackReason: error?.message }
+  }
+}
+
+/**
+ * Returns anonymized aggregated item demand across nearby vendors in the lane (T3.9).
+ */
+export async function getGroupDemand(
+  { lane = 'Hazratganj', date, vendorId = null },
+  { db } = {},
+) {
+  const key = groupDocId(date, lane)
+  const selfHash = vendorId ? anonymizeVendorId(vendorId) : null
+
+  let contributions = inMemoryGroupDemand.get(key) ?? {}
+  let source = 'memory'
+  if (db !== null) {
+    try {
+      const database = db ?? getDb()
+      const snap = await Promise.race([
+        database.collection('groupDemand').doc(key).get(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Firestore group-buying read timeout')), 1500),
+        ),
+      ])
+      if (snap.exists && snap.data()?.contributions) {
+        contributions = snap.data().contributions
+        source = 'firestore'
+      }
+    } catch {
+      // Graceful fallback to local memory store when Firestore is unconfigured.
+    }
+  }
+
+  const optedInVendors = Object.values(contributions).filter((c) => c?.optIn).length
+  const suggestions = aggregateGroupContributions(contributions, selfHash)
+
+  return {
+    lane,
+    date,
+    optedInVendors,
+    youOptedIn: Boolean(selfHash && contributions[selfHash]?.optIn),
+    suggestions,
+    source,
+    isMock: false,
   }
 }
