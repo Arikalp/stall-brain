@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { GripVertical, Plus, X } from 'lucide-react'
-import { signOut } from 'firebase/auth'
 import Header from '../components/Header'
 import StallSelector from '../components/StallSelector'
 import { stalls } from '../data/stalls'
@@ -14,7 +13,7 @@ import {
 import { fetchServerProfile, pushServerProfile } from '../utils/profileApi'
 import { apiRequest } from '../utils/api'
 import { clearForecastSession } from '../utils/forecastSessionStore'
-import { auth } from '../utils/firebase'
+import { clearSession } from '../utils/auth'
 
 export default function ProfilePage() {
   const navigate = useNavigate()
@@ -234,9 +233,9 @@ export default function ProfilePage() {
     }
   }
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
     clearForecastSession()
-    await signOut(auth)
+    clearSession()
     navigate('/login')
   }
 

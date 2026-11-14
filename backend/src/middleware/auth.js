@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import admin from 'firebase-admin'
 import { getAuth } from 'firebase-admin/auth'
 import { config } from '../config.js'
+import { verifySessionToken } from '../lib/sessionToken.js'
 
 let adminApp
 
@@ -76,8 +77,13 @@ function respondUnauthorized(res, message) {
 }
 
 /**
- * Verifies the Firebase ID token on every request and exposes the uid as
+ * Verifies the Bearer token on every request and exposes the uid as
  * req.vendorId. Requests without a valid Bearer token get 401.
+ *
+ * Token order:
+ *   1. Our own HS256 session token (minted by /api/auth/google/callback).
+ *   2. A Firebase ID token (legacy path; kept so previously-issued Firebase
+ *      sessions keep working if the Firebase web API key is ever restored).
  */
 export async function requireAuth(req, res, next) {
   const header = req.headers.authorization ?? ''
@@ -85,6 +91,15 @@ export async function requireAuth(req, res, next) {
 
   if (scheme !== 'Bearer' || !token) {
     return respondUnauthorized(res, 'Missing or malformed Authorization header.')
+  }
+
+  if (config.sessionSecret) {
+    const session = verifySessionToken(token, config.sessionSecret)
+    if (session) {
+      req.vendorId = session.sub
+      req.auth = session
+      return next()
+    }
   }
 
   try {

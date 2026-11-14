@@ -21,6 +21,9 @@ frontend/dist-ssr
 .env
 frontend/.env
 backend/.env
+# Production env files carry real secrets too - keep them local only
+backend/.env.production
+frontend/.env.production
 
 # Firebase Admin service account keys (never commit)
 service-account*.json

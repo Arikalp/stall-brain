@@ -1,14 +1,14 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { onAuthStateChanged } from 'firebase/auth'
-import { auth } from './utils/firebase'
 import HomePage from './pages/HomePage'
 import LandingPage from './pages/LandingPage'
 import ProfilePage from './pages/ProfilePage'
 import ForecastPage from './pages/ForecastPage'
 import LoginPage from './pages/LoginPage'
 import SignupPage from './pages/SignupPage'
+import AuthCallbackPage from './pages/AuthCallbackPage'
+import { isAuthenticated } from './utils/auth'
 
 // Defined outside App so its component identity stays stable across renders.
 // Defining it inside App remounts the whole protected page on every render,
@@ -25,12 +25,25 @@ export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setIsLoggedIn(Boolean(user))
+    let cancelled = false
+    // Session lives in localStorage and is minted by the backend after Google
+    // OAuth (or via the demo fallback endpoint); login/logout dispatch
+    // 'bb-auth-changed' so all listeners stay in sync.
+    const syncAuth = () => {
+      setIsLoggedIn(isAuthenticated())
       setAuthReady(true)
-    })
+    }
 
-    return () => unsubscribe()
+    syncAuth()
+    window.addEventListener('bb-auth-changed', syncAuth)
+    // Also re-check on focus so expired sessions drop out promptly.
+    window.addEventListener('focus', syncAuth)
+
+    return () => {
+      cancelled = true
+      window.removeEventListener('bb-auth-changed', syncAuth)
+      window.removeEventListener('focus', syncAuth)
+    }
   }, [])
 
   return (
@@ -51,6 +64,7 @@ export default function App() {
               <Route path="/home" element={<HomePage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/signup" element={<SignupPage />} />
+              <Route path="/auth/callback" element={<AuthCallbackPage />} />
               <Route
                 path="/setup"
                 element={

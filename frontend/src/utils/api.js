@@ -1,7 +1,7 @@
-import { auth } from './firebase'
+import { getSessionToken } from './auth'
 
 // Base URL of the Express backend (no secrets here - the browser only ever
-// sends its own Firebase ID token).
+// sends its own session token).
 export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 function makeError(code) {
@@ -11,25 +11,25 @@ function makeError(code) {
 }
 
 /**
- * Firebase ID token for the signed-in vendor. Exported for streaming requests
+ * Session token for the signed-in vendor. Exported for streaming requests
  * that build their own fetch (SSE via ReadableStream; EventSource cannot send
  * auth headers). Still no secrets here - only the vendor's own token.
  */
-export async function getAccessToken() {
-  const user = auth.currentUser
-  if (!user) {
+export function getAccessToken() {
+  const token = getSessionToken()
+  if (!token) {
     throw makeError('AUTH_REQUIRED')
   }
-  return user.getIdToken()
+  return token
 }
 
 /**
  * Authenticated request to the Bazaar Brain backend.
- * Sends the caller's Firebase ID token; the backend verifies it and responds
+ * Sends the caller's session token; the backend verifies it and responds
  * with `{ error: CODE }` bodies that are surfaced as Error.code.
  */
 export async function apiRequest(path, { method = 'GET', body, signal } = {}) {
-  const token = await getAccessToken()
+  const token = getAccessToken()
 
   let response
   try {

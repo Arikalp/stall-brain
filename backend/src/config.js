@@ -12,6 +12,21 @@ const envSchema = z.object({
   GROQ_API_KEY: z.string().min(1, 'GROQ_API_KEY is required'),
   // llama-3.3-70b-versatile was decommissioned on Groq; keep the model swappable here.
   GROQ_MODEL: z.string().default('openai/gpt-oss-120b'),
+  // Google OAuth (web application client). The browser is redirected to
+  // /api/auth/google/start, and Google sends the code back to
+  // /api/auth/google/callback where it is exchanged server-side.
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  // Optional explicit callback URL override, e.g.
+  // https://stall-brain.onrender.com/api/auth/google/callback
+  // When omitted it is derived from the incoming request host.
+  GOOGLE_REDIRECT_URI: z.string().optional(),
+  // Secret used to sign our own HS256 session tokens (issued after OAuth).
+  SESSION_SECRET: z.string().optional(),
+  SESSION_TTL_DAYS: z.coerce.number().int().positive().default(30),
+  // Frontend origin the OAuth callback redirects back to. Defaults to the
+  // first entry of FRONTEND_ORIGIN.
+  FRONTEND_URL: z.string().optional(),
   // Firebase Admin: provide a service account (JSON string or file path) or rely on
   // Application Default Credentials (GOOGLE_APPLICATION_CREDENTIALS / gcloud auth).
   FIREBASE_PROJECT_ID: z.string().optional(),
@@ -74,6 +89,12 @@ export const config = Object.freeze({
   allowedOrigins: origins.length ? origins : defaultDevOrigins,
   groqApiKey: parsed.data.GROQ_API_KEY,
   groqModel: parsed.data.GROQ_MODEL,
+  googleClientId: parsed.data.GOOGLE_CLIENT_ID,
+  googleClientSecret: parsed.data.GOOGLE_CLIENT_SECRET,
+  googleRedirectUri: parsed.data.GOOGLE_REDIRECT_URI,
+  sessionSecret: parsed.data.SESSION_SECRET,
+  sessionTtlSeconds: parsed.data.SESSION_TTL_DAYS * 24 * 60 * 60,
+  frontendUrl: parsed.data.FRONTEND_URL,
   firebaseProjectId: parsed.data.FIREBASE_PROJECT_ID,
   firebaseServiceAccountJson: parsed.data.FIREBASE_SERVICE_ACCOUNT_JSON,
   firebaseServiceAccountPath: parsed.data.FIREBASE_SERVICE_ACCOUNT_PATH,

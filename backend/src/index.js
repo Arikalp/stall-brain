@@ -4,6 +4,7 @@ import helmet from 'helmet'
 import cors from 'cors'
 import { config } from './config.js'
 import { initFirebaseAdmin } from './middleware/auth.js'
+import { authRouter } from './routes/auth.js'
 import { forecastRouter } from './routes/forecast.js'
 import { logsRouter } from './routes/logs.js'
 import { profileRouter } from './routes/profile.js'
@@ -15,6 +16,9 @@ import { scheduleMorningWhatsappCron } from './jobs/whatsappMorning.js'
 export function createApp() {
   const app = express()
 
+  // Honor X-Forwarded-* headers (Render/Vercel proxies) so the OAuth callback
+  // redirect URI is derived as https://<host>/api/auth/google/callback.
+  app.set('trust proxy', 1)
   app.use(helmet())
   app.use(
     cors({
@@ -38,6 +42,7 @@ export function createApp() {
     })
   })
 
+  app.use('/api', authRouter)
   app.use('/api', forecastRouter)
   app.use('/api', logsRouter)
   app.use('/api', profileRouter)

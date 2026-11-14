@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { GripVertical, Plus, X } from 'lucide-react'
-import { signOut } from 'firebase/auth'
 import Header from '../components/Header'
 import StallSelector from '../components/StallSelector'
 import { stalls } from '../data/stalls'
 import { loadSelection, saveSelection } from '../utils/selectionStorage'
-import { auth } from '../utils/firebase'
+import { clearSession } from '../utils/auth'
 
 const steps = [
   { id: 1, label: 'Choose Stall' },
@@ -103,8 +102,8 @@ export default function SetupPage() {
     navigate('/forecast')
   }
 
-  const handleLogout = async () => {
-    await signOut(auth)
+  const handleLogout = () => {
+    clearSession()
     navigate('/login')
   }
 

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "../utils/firebase";
+import { isAuthenticated } from "../utils/auth";
 
 const navItems = [
   { label: "Features", href: "#features" },
@@ -16,12 +15,15 @@ export default function Navbar() {
   const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setIsLoggedIn(Boolean(user));
+    const syncAuth = () => {
+      setIsLoggedIn(isAuthenticated());
       setAuthReady(true);
-    });
+    };
 
-    return () => unsubscribe();
+    syncAuth();
+    window.addEventListener("bb-auth-changed", syncAuth);
+
+    return () => window.removeEventListener("bb-auth-changed", syncAuth);
   }, []);
 
   const handleNavClick = (event, href) => {
