@@ -18,8 +18,7 @@ function makeError(code) {
 export function getAccessToken() {
   const token = getSessionToken()
   if (!token) {
-    // Graceful fallback to demo-vendor-token so guests/demos are never blocked
-    return 'demo-vendor-token'
+    throw makeError('AUTH_REQUIRED')
   }
   return token
 }
