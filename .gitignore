@@ -11,11 +11,14 @@ lerna-debug.log*
 node_modules
 frontend/node_modules
 backend/node_modules
+stall-brain-next/node_modules
+stall-brain-next/.next
 
 # ── Build output ───────────────────────────────────────────────────────────
 frontend/dist
 frontend/dist-ssr
 *.local
+stall-brain-next/.env*
 
 # ── Environment files (never commit real secrets) ──────────────────────────
 .env

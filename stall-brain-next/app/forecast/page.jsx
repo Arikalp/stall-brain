@@ -1,0 +1,1077 @@
+'use client'
+
+import RequireAuth from '@/components/RequireAuth'
+
+import { useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { CloudOff, X } from 'lucide-react'
+import Header from '@/components/Header'
+import SignalPanel from '@/components/SignalPanel'
+import ForecastOutput from '@/components/ForecastOutput'
+import FeedbackBar from '@/components/FeedbackBar'
+import HistoryLog from '@/components/HistoryLog'
+import EndOfDayLog from '@/components/EndOfDayLog'
+import LoadingState from '@/components/LoadingState'
+import VoiceInventoryInput from '@/components/VoiceInventoryInput'
+import WhatIfPanel from '@/components/WhatIfPanel'
+import GroupBuyingCard from '@/components/GroupBuyingCard'
+import { getEventsForDate, getWeeklyMultiplier } from '@/data/events'
+import { getWeatherSignal } from '@/utils/weatherLogic'
+import { requestForecastStream, resumeForecast } from '@/utils/groqAgent'
+import { fetchGroupBuying, toggleGroupBuyingOptIn } from '@/utils/groupBuyingApi'
+import {
+  flushOfflineLogQueue,
+  loadLastForecast,
+  saveLastForecast,
+} from '@/utils/offlineStore'
+import { submitDailyLog } from '@/utils/logsApi'
+import PlanEditor from '@/components/PlanEditor'
+import { getTodayInfo } from '@/utils/dateTime'
+import { loadProfile, normalizeItemPrices } from '@/utils/profileStorage'
+import { fetchRecentRuns } from '@/utils/profileApi'
+import {
+  createSessionFromProfile,
+  INVENTORY_UNITS,
+  loadForecastSession,
+  saveForecastSession,
+} from '@/utils/forecastSessionStore'
+
+const WEATHER_URL =
+  'https://api.open-meteo.com/v1/forecast?latitude=26.85&longitude=80.95&current=temperature_2m,weathercode,windspeed_10m&daily=weathercode,temperature_2m_max,precipitation_sum&timezone=Asia%2FKolkata&forecast_days=1'
+const FALLBACK_WEATHER = {
+  temperature: 32,
+  weathercode: 0,
+  windspeed: 8,
+}
+const HISTORY_KEY = 'bazaarBrainHistory'
+
+const ERROR_COPY = {
+  AUTH_REQUIRED: {
+    title: 'Sign in required',
+    message: 'Please log in again so we can generate your forecast.',
+    action: 'Retry forecast',
+  },
+  RATE_LIMITED: {
+    title: 'Too many requests',
+    message:
+      'You have requested a lot of forecasts in a short time. Please wait a few minutes and try again.',
+    action: 'Retry forecast',
+  },
+  VALIDATION_FAILED: {
+    title: 'Something was off with your request',
+    message: 'We could not process this forecast request. Try again.',
+    action: 'Retry forecast',
+  },
+  FORECAST_UNAVAILABLE: {
+    title: 'Forecast service unavailable',
+    message: 'The forecast service is not responding. Try again in a moment.',
+    action: 'Retry forecast',
+  },
+  FORECAST_INVALID: {
+    title: 'Forecast response was unclear',
+    message: 'The AI response did not parse cleanly. Try regenerating.',
+    action: 'Regenerate forecast',
+  },
+  NETWORK_ERROR: {
+    title: "Can't reach the server",
+    message:
+      'The forecast backend is not reachable. Check your connection (or start the backend server) and retry.',
+    action: 'Retry forecast',
+  },
+  REQUEST_FAILED: {
+    title: 'Something went wrong',
+    message: 'Please retry the forecast when you are ready.',
+    action: 'Retry forecast',
+  },
+  UNKNOWN: {
+    title: 'Something went wrong',
+    message: 'Please retry the forecast when you are ready.',
+    action: 'Retry forecast',
+  },
+}
+
+function buildInventorySnapshot(items, inventory) {
+  return items.reduce((acc, item) => {
+    const entry = inventory?.[item] ?? {}
+    const quantity = Number(entry.quantity)
+    const safeQuantity = Number.isFinite(quantity) && quantity > 0 ? quantity : 0
+    const unit =
+      typeof entry.unit === 'string' && entry.unit.trim()
+        ? entry.unit
+        : INVENTORY_UNITS[0]
+    acc[item] = { quantity: safeQuantity, unit }
+    return acc
+  }, {})
+}
+
+function loadHistory() {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch (error) {
+    return []
+  }
+}
+
+function saveHistory(items) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(items))
+}
+
+function createId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
+  return `bb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function getErrorDetails(code) {
+  return ERROR_COPY[code] ?? ERROR_COPY.UNKNOWN
+}
+
+function ForecastContent() {
+  const [profile] = useState(() => loadProfile())
+  const dateInfo = useMemo(() => getTodayInfo(), [])
+  const [initialSession] = useState(() => {
+    if (!profile) {
+      return {
+        sessionIngredients: [],
+        inventory: {},
+        budgetInr: null,
+        itemPrices: {},
+      }
+    }
+    return loadForecastSession() ?? createSessionFromProfile(profile)
+  })
+  const [sessionIngredients, setSessionIngredients] = useState(
+    initialSession.sessionIngredients,
+  )
+  const [inventory, setInventory] = useState(initialSession.inventory)
+  const [budgetInr, setBudgetInr] = useState(() =>
+    initialSession.budgetInr != null ? String(initialSession.budgetInr) : '',
+  )
+  const [itemPrices, setItemPrices] = useState(
+    () => initialSession.itemPrices ?? profile?.itemPrices ?? {},
+  )
+  const [showPriceInputs, setShowPriceInputs] = useState(false)
+  const [newItem, setNewItem] = useState('')
+  const [itemError, setItemError] = useState('')
+  const sessionReady = Boolean(profile)
+
+  const stall = useMemo(() => {
+    if (!profile) return null
+    return {
+      id: profile.stallType,
+      name: profile.stallLabel,
+      emoji: profile.stallEmoji,
+      items: profile.ingredients,
+    }
+  }, [
+    profile?.stallType,
+    profile?.stallLabel,
+    profile?.stallEmoji,
+    profile?.ingredients,
+  ])
+
+  const [phase, setPhase] = useState('loadingSignals')
+  const [weather, setWeather] = useState(null)
+  const [weatherSignal, setWeatherSignal] = useState(getWeatherSignal(0))
+  const [fallbackWeather, setFallbackWeather] = useState(false)
+  const [forecast, setForecast] = useState(null)
+  const [liveSteps, setLiveSteps] = useState([])
+  const [pendingApproval, setPendingApproval] = useState(null)
+  // Inventory snapshot of the current run; reused when the vendor approves.
+  const inventorySnapshotRef = useRef(null)
+  const [showHindi, setShowHindi] = useState(false)
+  const [errorState, setErrorState] = useState(null)
+  const [feedback, setFeedback] = useState(null)
+  const [history, setHistory] = useState(() => loadHistory())
+  const [currentHistoryId, setCurrentHistoryId] = useState(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [logError, setLogError] = useState(null)
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator !== 'undefined' ? navigator.onLine : true,
+  )
+  const [offlineBanner, setOfflineBanner] = useState('')
+  const [simulationResult, setSimulationResult] = useState(null)
+  const [simLoading, setSimLoading] = useState(false)
+  const [simError, setSimError] = useState('')
+  const [groupBuyingData, setGroupBuyingData] = useState(null)
+  const [groupBuyingLoading, setGroupBuyingLoading] = useState(false)
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true)
+      setOfflineBanner('')
+      flushOfflineLogQueue(submitDailyLog).catch(() => {})
+    }
+    const handleOffline = () => {
+      setIsOnline(false)
+      const cached = loadLastForecast()
+      if (cached?.forecast) {
+        setForecast((prev) => prev ?? cached.forecast)
+        setPhase((prev) => (prev === 'forecastReady' ? prev : 'forecastReady'))
+        setOfflineBanner(
+          `Offline — showing last saved forecast (${cached.meta?.date ?? cached.cachedAt?.slice(0, 10) ?? 'cached'}).`,
+        )
+      } else {
+        setOfflineBanner('Offline — connect to the internet to run a fresh forecast.')
+      }
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      handleOffline()
+    } else {
+      flushOfflineLogQueue(submitDailyLog).catch(() => {})
+    }
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!stall || !isOnline) return
+    let active = true
+    fetchGroupBuying({
+      lane: profile?.lane ?? 'Hazratganj',
+      date: dateInfo.dateString,
+    })
+      .then((data) => {
+        if (active && data) setGroupBuyingData(data)
+      })
+      .catch(() => {
+        // Non-fatal: group buying is optional.
+      })
+    return () => {
+      active = false
+    }
+  }, [stall?.id, profile?.lane, dateInfo.dateString, isOnline])
+
+  const eventsToday = useMemo(() => {
+    return getEventsForDate(dateInfo.dateString)
+  }, [dateInfo.dateString])
+
+  const eventSummary = eventsToday.length
+    ? eventsToday.map((event) => event.name).join(' | ')
+    : ''
+  const eventSummaryForPrompt = eventSummary || 'No special events'
+  const eventMultiplier = eventsToday.length
+    ? Math.max(...eventsToday.map((event) => event.impactMultiplier))
+    : 1
+  const weeklyMultiplier = getWeeklyMultiplier(dateInfo.dayName)
+
+  const effectiveWeather = weather ?? FALLBACK_WEATHER
+  const effectiveWeatherSignal = weatherSignal ?? getWeatherSignal(0)
+  const demandMultiplier =
+    (effectiveWeatherSignal.footfallImpact ?? 1) *
+    eventMultiplier *
+    weeklyMultiplier
+
+  const parsedBudgetInr = useMemo(() => {
+    if (budgetInr.trim() === '') return null
+    const num = Number(budgetInr)
+    return Number.isFinite(num) && num >= 0 ? num : null
+  }, [budgetInr])
+
+  useEffect(() => {
+    if (!sessionReady) return
+    saveForecastSession({
+      sessionIngredients,
+      inventory,
+      budgetInr: parsedBudgetInr,
+      itemPrices,
+    })
+  }, [sessionIngredients, inventory, parsedBudgetInr, itemPrices, sessionReady])
+
+  useEffect(() => {
+    if (!stall) return
+
+    let active = true
+    const controller = new AbortController()
+
+    setPhase('loadingSignals')
+    setWeather(null)
+    setWeatherSignal(getWeatherSignal(0))
+    setFallbackWeather(false)
+    setForecast(null)
+    setErrorState(null)
+    setShowHindi(false)
+    setFeedback(null)
+    setCurrentHistoryId(null)
+
+    async function fetchWeather() {
+      try {
+        const response = await fetch(WEATHER_URL, {
+          signal: controller.signal,
+        })
+        if (!response.ok) {
+          throw new Error('WEATHER_REQUEST_FAILED')
+        }
+        const data = await response.json()
+        const temperature = data?.current?.temperature_2m
+        const weathercode = data?.current?.weathercode
+        const windspeed = data?.current?.windspeed_10m
+
+        if (!active) return
+
+        setWeather({
+          temperature: Number.isFinite(temperature)
+            ? temperature
+            : FALLBACK_WEATHER.temperature,
+          weathercode: Number.isFinite(weathercode)
+            ? weathercode
+            : FALLBACK_WEATHER.weathercode,
+          windspeed: Number.isFinite(windspeed)
+            ? windspeed
+            : FALLBACK_WEATHER.windspeed,
+        })
+        setWeatherSignal(
+          getWeatherSignal(Number.isFinite(weathercode) ? weathercode : 0),
+        )
+        setFallbackWeather(false)
+        setPhase((prev) => (prev === 'loadingSignals' ? 'signalsReady' : prev))
+      } catch (error) {
+        if (!active) return
+        setWeather({ ...FALLBACK_WEATHER })
+        setWeatherSignal(getWeatherSignal(FALLBACK_WEATHER.weathercode))
+        setFallbackWeather(true)
+        setPhase((prev) => (prev === 'loadingSignals' ? 'signalsReady' : prev))
+      }
+    }
+
+    fetchWeather()
+
+    return () => {
+      active = false
+      controller.abort()
+    }
+  }, [stall?.id])
+
+  const handleRemoveItem = (itemName) => {
+    setSessionIngredients((prev) => prev.filter((item) => item !== itemName))
+    setInventory((prev) => {
+      const next = { ...prev }
+      delete next[itemName]
+      return next
+    })
+  }
+
+  const handleAddItem = () => {
+    const trimmed = newItem.trim()
+    if (!trimmed) return
+
+    setSessionIngredients((prev) => {
+      const exists = prev.some(
+        (item) => item.toLowerCase() === trimmed.toLowerCase(),
+      )
+      if (exists) return prev
+      return [...prev, trimmed]
+    })
+    setInventory((prev) => ({
+      ...prev,
+      [trimmed]: prev[trimmed] ?? { quantity: 0, unit: INVENTORY_UNITS[0] },
+    }))
+    setNewItem('')
+    setItemError('')
+  }
+
+  const handleInventoryChange = (itemName, field, value) => {
+    setInventory((prev) => {
+      const current = prev[itemName] ?? { quantity: 0, unit: INVENTORY_UNITS[0] }
+      if (field === 'quantity') {
+        const quantity = Number(value)
+        return {
+          ...prev,
+          [itemName]: {
+            ...current,
+            quantity:
+              Number.isFinite(quantity) && quantity >= 0 ? quantity : 0,
+          },
+        }
+      }
+      return {
+        ...prev,
+        [itemName]: {
+          ...current,
+          unit: value,
+        },
+      }
+    })
+  }
+
+  const handlePriceChange = (itemName, field, value) => {
+    setItemPrices((prev) => {
+      const current = prev[itemName] ?? {}
+      const trimmed = value.trim()
+      if (trimmed === '') {
+        const nextEntry = { ...current }
+        delete nextEntry[field]
+        if (Object.keys(nextEntry).length === 0) {
+          const next = { ...prev }
+          delete next[itemName]
+          return next
+        }
+        return { ...prev, [itemName]: nextEntry }
+      }
+      const num = Number(trimmed)
+      if (!Number.isFinite(num) || num < 0) return prev
+      return {
+        ...prev,
+        [itemName]: { ...current, [field]: num },
+      }
+    })
+  }
+
+  /** Applies confirmed voice-parsed stock entries (T3.1). */
+  const handleVoiceInventoryConfirm = (parsedEntries) => {
+    if (!Array.isArray(parsedEntries) || !parsedEntries.length) return
+
+    setSessionIngredients((prev) => {
+      const next = [...prev]
+      for (const entry of parsedEntries) {
+        const exists = next.some(
+          (item) => item.toLowerCase() === entry.item.toLowerCase(),
+        )
+        if (!exists) next.push(entry.item)
+      }
+      return next
+    })
+
+    setInventory((prev) => {
+      const next = { ...prev }
+      for (const entry of parsedEntries) {
+        const matchingKey =
+          Object.keys(next).find(
+            (key) => key.toLowerCase() === entry.item.toLowerCase(),
+          ) ?? entry.item
+        next[matchingKey] = {
+          quantity: entry.quantity,
+          unit: entry.unit,
+        }
+      }
+      return next
+    })
+    setItemError('')
+  }
+
+  /** Shared handling for both round-trips: pause for approval, or finish. */
+  const handleRunResponse = (result) => {
+    if (result.status === 'PENDING_APPROVAL') {
+      setPendingApproval({ runId: result.runId, plan: result.plan })
+      setPhase('awaitingApproval')
+      return
+    }
+    completeForecast(result.plan)
+  }
+
+  const completeForecast = (plan) => {
+    const entryId = createId()
+    const newEntry = {
+      id: entryId,
+      date: dateInfo.dateString,
+      dateLabel: dateInfo.dateLabel,
+      stallId: stall.id,
+      stallName: stall.name,
+      expectedCustomers: plan.expectedCustomers,
+      demandMultiplier: Number(demandMultiplier.toFixed(2)),
+      summary: plan.summary,
+      feedback: null,
+      inventorySnapshot: inventorySnapshotRef.current,
+    }
+
+    setCurrentHistoryId(entryId)
+    setHistory((prev) => {
+      const filtered = prev.filter(
+        (item) => item.date !== newEntry.date || item.stallId !== newEntry.stallId,
+      )
+      const next = [newEntry, ...filtered].slice(0, 5)
+      saveHistory(next)
+      return next
+    })
+
+    saveLastForecast(plan, { date: dateInfo.dateString })
+    setOfflineBanner('')
+    setSimulationResult(null)
+    setForecast(plan)
+    setPendingApproval(null)
+    setPhase('forecastReady')
+  }
+
+  /** What-If Simulation Mode (T3.5): runs on separate thread_id, never persisted. */
+  const handleSimulate = async (signalOverrides, scenarioLabel) => {
+    if (!stall || sessionIngredients.length < 1) return
+    setSimLoading(true)
+    setSimError('')
+    try {
+      const inventorySnapshot =
+        inventorySnapshotRef.current ??
+        buildInventorySnapshot(sessionIngredients, inventory)
+      const result = await requestForecastStream({
+        stall,
+        items: sessionIngredients,
+        inventory: inventorySnapshot,
+        dateLabel: dateInfo.dateLabel,
+        dayName: dateInfo.dayName,
+        weather: effectiveWeather,
+        weatherSignal: effectiveWeatherSignal,
+        eventSummary: eventSummaryForPrompt,
+        weeklyMultiplier,
+        eventMultiplier,
+        demandMultiplier: Number(demandMultiplier.toFixed(2)),
+        budgetInr: parsedBudgetInr,
+        itemPrices: normalizeItemPrices(itemPrices),
+        simulation: true,
+        signalOverrides,
+        lane: profile?.lane ?? 'Hazratganj',
+      })
+      if (result?.plan) {
+        setSimulationResult({ scenarioLabel, plan: result.plan })
+      }
+    } catch {
+      setSimError('Could not run What-If simulation right now. Check connection.')
+    } finally {
+      setSimLoading(false)
+    }
+  }
+
+  /** Group-buying opt-in / opt-out (T3.9). */
+  const handleToggleGroupOptIn = async (nextOptIn) => {
+    setGroupBuyingLoading(true)
+    try {
+      const buyItems = (forecast?.procurementList ?? [])
+        .map((row) => {
+          const parsedQty = Number.parseFloat(String(row.toBuy ?? '0'))
+          return {
+            item: row.item,
+            toBuy: Number.isFinite(parsedQty) ? parsedQty : 0,
+            unit: row.unit || 'units',
+          }
+        })
+        .filter((row) => row.toBuy > 0)
+
+      const updated = await toggleGroupBuyingOptIn({
+        optIn: nextOptIn,
+        lane: profile?.lane ?? 'Hazratganj',
+        date: dateInfo.dateString,
+        items: buyItems,
+      })
+      if (updated) setGroupBuyingData(updated)
+    } catch {
+      // Ignore quietly; current state remains unchanged.
+    } finally {
+      setGroupBuyingLoading(false)
+    }
+  }
+
+  const handleForecast = async () => {
+    if (!stall) return
+    if (sessionIngredients.length < 1) {
+      setItemError('Add at least one item to get a forecast.')
+      return
+    }
+
+    setPhase('loadingForecast')
+    setErrorState(null)
+    setForecast(null)
+    setShowHindi(false)
+    setFeedback(null)
+    setPendingApproval(null)
+    setLiveSteps([])
+    setLogError(null)
+
+    const inventorySnapshot = buildInventorySnapshot(
+      sessionIngredients,
+      inventory,
+    )
+    inventorySnapshotRef.current = inventorySnapshot
+
+    try {
+      const result = await requestForecastStream(
+        {
+          stall,
+          items: sessionIngredients,
+          inventory: inventorySnapshot,
+          dateLabel: dateInfo.dateLabel,
+          dayName: dateInfo.dayName,
+          weather: effectiveWeather,
+          weatherSignal: effectiveWeatherSignal,
+          eventSummary: eventSummaryForPrompt,
+          weeklyMultiplier,
+          eventMultiplier,
+          demandMultiplier: Number(demandMultiplier.toFixed(2)),
+          budgetInr: parsedBudgetInr,
+          itemPrices: normalizeItemPrices(itemPrices),
+        },
+        (step) => setLiveSteps((prev) => [...prev, step]),
+      )
+      handleRunResponse(result)
+    } catch (error) {
+      setErrorState(error?.code ?? 'UNKNOWN')
+      setPhase('error')
+    }
+  }
+
+  /** Resume the paused run with the vendor's decision (T1.8). */
+  const handleApprovalDecision = async (decision) => {
+    if (!pendingApproval) return
+    setPhase('applyingApproval')
+    setLiveSteps(['Applying your changes...', 'Saving your plan...'])
+    try {
+      const result = await resumeForecast(pendingApproval.runId, decision)
+      handleRunResponse(result)
+    } catch (error) {
+      setErrorState(error?.code ?? 'UNKNOWN')
+      setPhase('error')
+    }
+  }
+
+  const handleApprove = (editedPlan) =>
+    handleApprovalDecision({ approved: true, editedPlan })
+
+  const handleReject = () => handleApprovalDecision({ approved: false })
+
+  const handleFeedback = (value) => {
+    setFeedback(value)
+    if (!currentHistoryId) return
+    setHistory((prev) => {
+      const next = prev.map((item) =>
+        item.id === currentHistoryId ? { ...item, feedback: value } : item,
+      )
+      saveHistory(next)
+      return next
+    })
+  }
+
+  /** The day's report was saved (T2.1): tag the history entry. */
+  const handleDayLogged = () => {
+    setLogError(null)
+    if (!currentHistoryId) return
+    setHistory((prev) => {
+      const next = prev.map((item) =>
+        item.id === currentHistoryId
+          ? { ...item, outcomeSummary: 'Day logged' }
+          : item,
+      )
+      saveHistory(next)
+      return next
+    })
+  }
+
+  if (!profile || !stall) {
+    return (
+      <Navigate
+        href="/profile"
+        replace
+        state={{
+          banner: 'Set up your stall profile first to get your forecast.',
+        }}
+      />
+    )
+  }
+
+  const errorDetails = errorState ? getErrorDetails(errorState) : null
+  const showForecast = Boolean(phase === 'forecastReady' && forecast)
+  const showError = Boolean(phase === 'error' && errorDetails)
+  const itemsTodayLabel = `${sessionIngredients.length} items today`
+  const stockCount = sessionIngredients.filter((item) => {
+    const quantity = Number(inventory?.[item]?.quantity ?? 0)
+    return Number.isFinite(quantity) && quantity > 0
+  }).length
+
+  return (
+    <main className="relative min-h-screen">
+      <div className="relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col px-4 pb-12 pt-8 sm:px-6 lg:px-10">
+        <Header />
+
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3 text-sm text-[var(--color-text-secondary)]">
+            <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-bg-card)] px-3 py-1">
+              {dateInfo.dateLabel}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href="/profile"
+              className="inline-flex items-center rounded-full border border-[var(--color-border)] bg-transparent px-4 py-2 text-sm font-semibold text-[var(--color-text-secondary)] transition hover:bg-[var(--color-bg-card-hover)]"
+            >
+              Profile
+            </Link>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] px-5 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="text-3xl">{stall.emoji}</span>
+              <div>
+                <p className="text-xs uppercase tracking-[0.25em] text-[var(--color-text-muted)]">
+                  Stall identity
+                </p>
+                <p className="text-base font-semibold text-[var(--color-text-primary)]">
+                  {stall.name}
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/profile"
+              className="text-sm font-semibold text-[var(--color-primary)] transition hover:text-[var(--color-primary-dark)]"
+            >
+              Edit in Profile -
+            </Link>
+          </div>
+        </div>
+
+        {offlineBanner ? (
+          <div className="mt-4 flex items-center gap-3 rounded-2xl border border-[rgba(251,191,36,0.45)] bg-[rgba(251,191,36,0.12)] px-4 py-3 text-xs font-semibold text-[var(--color-text-primary)]">
+            <CloudOff size={16} className="shrink-0 text-[var(--color-warning)]" />
+            <span>{offlineBanner}</span>
+          </div>
+        ) : null}
+
+        <SignalPanel
+          weather={effectiveWeather}
+          weatherSignal={effectiveWeatherSignal}
+          eventSummary={eventSummary}
+          eventMultiplier={eventMultiplier}
+          dayName={dateInfo.dayName}
+          dayMultiplier={weeklyMultiplier}
+          fallbackWeather={fallbackWeather}
+          loading={phase === 'loadingSignals'}
+        />
+
+        <section className="mt-8">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">
+                Today&apos;s Items
+              </h2>
+              <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+                These are loaded from your profile. Add or remove items just for
+                today - your profile won&apos;t change.
+              </p>
+            </div>
+            <span className="text-sm font-semibold text-[var(--color-text-secondary)]">
+              {itemsTodayLabel}
+            </span>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-4">
+            <div className="space-y-3">
+              {sessionIngredients.length ? (
+                sessionIngredients.map((item) => (
+                  <div
+                    key={item}
+                    className="flex items-center justify-between rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-input)] px-4 py-3"
+                  >
+                    <span className="text-sm font-semibold text-[var(--color-text-primary)]">
+                      {item}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveItem(item)}
+                      className="rounded-full border border-transparent p-1 text-[var(--color-text-muted)] transition hover:border-[var(--color-danger)] hover:text-[var(--color-danger)]"
+                      aria-label={`Remove ${item}`}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-input)] px-4 py-3 text-sm text-[var(--color-text-muted)]">
+                  Add at least one item to get a forecast.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-[var(--color-border)] bg-[var(--color-bg-input)] px-3 py-2 focus-within:border-[var(--color-border-focus)]">
+              <input
+                value={newItem}
+                onChange={(event) => setNewItem(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    handleAddItem()
+                  }
+                }}
+                placeholder="Add item for today..."
+                className="flex-1 bg-transparent text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none"
+              />
+              <button
+                type="button"
+                onClick={handleAddItem}
+                className="inline-flex items-center gap-2 rounded-full bg-[var(--color-primary)] px-3 py-1.5 text-xs font-semibold text-[#0D0D0D] transition hover:bg-[var(--color-primary-dark)]"
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          {itemError ? (
+            <p className="mt-3 text-sm text-[var(--color-danger)]">
+              {itemError}
+            </p>
+          ) : null}
+        </section>
+
+        <section className="mt-8">
+          <div>
+            <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">
+              What do you already have?
+            </h2>
+            <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+              Tell us what stock you already have. The AI will only recommend
+              what you still need to buy.
+            </p>
+          </div>
+
+          <VoiceInventoryInput
+            knownItems={sessionIngredients}
+            onConfirm={handleVoiceInventoryConfirm}
+          />
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            {sessionIngredients.map((item) => (
+              <div
+                key={`inventory-${item}`}
+                className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-4"
+              >
+                <div className="grid gap-3 sm:grid-cols-[1fr_110px_130px]">
+                  <span className="text-sm font-semibold text-[var(--color-text-primary)]">
+                    {item}
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={inventory?.[item]?.quantity ?? 0}
+                    onChange={(event) =>
+                      handleInventoryChange(item, 'quantity', event.target.value)
+                    }
+                    placeholder="0 (leave blank if none)"
+                    className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-input)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--color-border-focus)]"
+                  />
+                  <select
+                    value={inventory?.[item]?.unit ?? INVENTORY_UNITS[0]}
+                    onChange={(event) =>
+                      handleInventoryChange(item, 'unit', event.target.value)
+                    }
+                    className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-input)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--color-border-focus)]"
+                  >
+                    {INVENTORY_UNITS.map((unit) => (
+                      <option key={unit} value={unit}>
+                        {unit}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <p className="mt-3 text-sm text-[var(--color-text-muted)]">
+            You have stock for {stockCount} of {sessionIngredients.length} items
+          </p>
+        </section>
+
+        <section className="mt-6 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <label
+                htmlFor="session-budget-input"
+                className="text-sm font-semibold text-[var(--color-text-primary)]"
+              >
+                Today&apos;s Budget Cap (₹) — optional
+              </label>
+              <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
+                Set a spending limit and the agent will prioritize high-margin items to maximize profit.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                id="session-budget-input"
+                type="number"
+                min="0"
+                step="any"
+                value={budgetInr}
+                onChange={(event) => setBudgetInr(event.target.value)}
+                placeholder="No budget cap"
+                className="w-40 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-input)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none focus:border-[var(--color-border-focus)]"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPriceInputs((prev) => !prev)}
+                className="rounded-full border border-[var(--color-border)] bg-transparent px-3 py-1.5 text-xs font-semibold text-[var(--color-text-secondary)] transition hover:bg-[var(--color-bg-card-hover)]"
+              >
+                {showPriceInputs ? 'Hide prices' : 'Edit buy / sell ₹'}
+              </button>
+            </div>
+          </div>
+
+          {showPriceInputs ? (
+            <div className="mt-4 space-y-2 border-t border-[var(--color-border)] pt-4">
+              <p className="text-xs text-[var(--color-text-muted)]">
+                Leave blank to use default Lucknow mandi mock prices (clearly marked in the forecast).
+              </p>
+              <div className="grid gap-2 md:grid-cols-2">
+                {sessionIngredients.map((item) => (
+                  <div
+                    key={`price-${item}`}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-input)] px-3 py-2"
+                  >
+                    <span className="text-xs font-semibold text-[var(--color-text-primary)]">
+                      {item}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={itemPrices?.[item]?.buyPrice ?? ''}
+                        onChange={(event) =>
+                          handlePriceChange(item, 'buyPrice', event.target.value)
+                        }
+                        placeholder="Buy ₹"
+                        aria-label={`Today buy price for ${item}`}
+                        className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-card)] px-2 py-1 text-xs text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none focus:border-[var(--color-border-focus)]"
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={itemPrices?.[item]?.sellPrice ?? ''}
+                        onChange={(event) =>
+                          handlePriceChange(item, 'sellPrice', event.target.value)
+                        }
+                        placeholder="Sell ₹"
+                        aria-label={`Today sell price for ${item}`}
+                        className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-card)] px-2 py-1 text-xs text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none focus:border-[var(--color-border-focus)]"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </section>
+
+        <div className="mt-8">
+          <button
+            type="button"
+            onClick={handleForecast}
+            disabled={sessionIngredients.length < 1}
+            className="w-full rounded-2xl bg-[var(--color-primary)] px-6 py-4 text-base font-semibold text-[#0D0D0D] shadow-[0_0_30px_var(--color-primary-glow)] transition hover:bg-[var(--color-primary-dark)] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Get Today&apos;s Forecast -
+          </button>
+        </div>
+
+        {phase === 'loadingForecast' || phase === 'applyingApproval' ? (
+          <LoadingState active steps={liveSteps} />
+        ) : null}
+
+        {phase === 'awaitingApproval' && pendingApproval ? (
+          <PlanEditor
+            key={pendingApproval.runId}
+            plan={pendingApproval.plan}
+            onApprove={handleApprove}
+            onReject={handleReject}
+          />
+        ) : null}
+
+        {showForecast ? (
+          <>
+            <ForecastOutput
+              forecast={forecast}
+              demandMultiplier={demandMultiplier}
+              showHindi={showHindi}
+              onToggleHindi={() => setShowHindi((prev) => !prev)}
+              onRegenerate={handleForecast}
+            />
+            <WhatIfPanel
+              baselineForecast={forecast}
+              simulationResult={simulationResult}
+              loading={simLoading}
+              error={simError}
+              onSimulate={handleSimulate}
+              onClear={() => setSimulationResult(null)}
+              disabled={!isOnline}
+            />
+          </>
+        ) : null}
+
+        <GroupBuyingCard
+          data={groupBuyingData}
+          lane={profile?.lane ?? 'Hazratganj'}
+          optedIn={Boolean(groupBuyingData?.youOptedIn ?? profile?.groupBuyingOptIn)}
+          loading={groupBuyingLoading}
+          onToggleOptIn={handleToggleGroupOptIn}
+          disabled={!isOnline}
+        />
+
+        {phase === 'forecastReady' ? (
+          <FeedbackBar feedback={feedback} onFeedback={handleFeedback} />
+        ) : null}
+
+        {phase === 'forecastReady' && forecast ? (
+          <>
+            {logError ? (
+              <p className="mt-6 text-sm text-[var(--color-danger)]">
+                Could not save today&apos;s report - check your connection and
+                try again.
+              </p>
+            ) : null}
+            <EndOfDayLog
+              items={[
+                ...(forecast.procurementList ?? []).map((item) => item.item),
+                ...(forecast.sufficientStockItems ?? []),
+              ].filter((item, index, all) => all.indexOf(item) === index)}
+              date={dateInfo.dateString}
+              onLogged={handleDayLogged}
+              onError={() => setLogError('SAVE_FAILED')}
+            />
+          </>
+        ) : null}
+
+        {showError ? (
+          <div className="mt-8 rounded-2xl border border-[var(--color-danger)] bg-[rgba(248,113,113,0.12)] p-6">
+            <h3 className="text-lg font-semibold text-[var(--color-text-primary)]">
+              {errorDetails.title}
+            </h3>
+            <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
+              {errorDetails.message}
+            </p>
+            <button
+              type="button"
+              onClick={handleForecast}
+              className="mt-4 inline-flex items-center gap-2 rounded-full border border-[var(--color-danger)] bg-transparent px-4 py-2 text-sm font-semibold text-[var(--color-text-primary)] transition hover:bg-[rgba(248,113,113,0.12)]"
+            >
+              {errorDetails.action}
+            </button>
+          </div>
+        ) : null}
+
+        <HistoryLog
+          history={history}
+          collapsed={!historyOpen}
+          onToggle={() => setHistoryOpen((prev) => !prev)}
+        />
+      </div>
+    </main>
+  )
+}
+
+
+export default function ForecastPage() {
+  return (
+    <RequireAuth>
+      <ForecastContent />
+    </RequireAuth>
+  )
+}

@@ -1,0 +1,32 @@
+{
+  "name": "stall-brain-next",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@langchain/core": "^1.5.0",
+    "@langchain/groq": "^1.3.2",
+    "@langchain/langgraph": "^1.7.5",
+    "@opentelemetry/api": "^1.10.0",
+    "firebase-admin": "^14.5.1",
+    "framer-motion": "^14.14.0",
+    "lru-cache": "^11.5.3",
+    "lucide-react": "^1.77.0",
+    "next": "16.4.6",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/turbopack": "4.3.3",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "tailwindcss": "4.3.3",
+    "typescript": "^5"
+  }
+}

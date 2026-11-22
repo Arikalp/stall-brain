@@ -1,0 +1,68 @@
+import { verifySessionToken } from './lib/sessionToken.js'
+import { config } from './config.js'
+import { getFirebaseAuth } from './middleware/auth.js'
+
+/**
+ * Extracts and verifies the Bearer token from a Next.js Request.
+ * Returns { vendorId, auth, error: null } or { vendorId: null, auth: null, error: message, status: 401 }.
+ */
+export async function requireAuth(request) {
+  const header = request.headers.get('authorization') ?? ''
+  const [scheme, token] = header.split(' ')
+
+  if (scheme !== 'Bearer' || !token) {
+    return {
+      vendorId: null,
+      auth: null,
+      error: 'Missing or malformed Authorization header.',
+      status: 401,
+    }
+  }
+
+  // 1. Demo user bypass: instant preview without external OAuth
+  if (token === 'demo-vendor-token' || token.startsWith('demo-')) {
+    return {
+      vendorId: 'demo-vendor-hazratganj',
+      auth: {
+        sub: 'demo-vendor-hazratganj',
+        email: 'demo@bazaarbrain.in',
+        name: 'Ramesh Kumar (Demo Vendor)',
+      },
+      error: null,
+    }
+  }
+
+  // 2. HS256 session token minted by /api/auth/google/callback or /api/auth/demo
+  if (config.sessionSecret) {
+    const session = verifySessionToken(token, config.sessionSecret)
+    if (session) {
+      return {
+        vendorId: session.sub,
+        auth: session,
+        error: null,
+      }
+    }
+  }
+
+  // 3. Fallback: Firebase ID token if configured
+  try {
+    const auth = getFirebaseAuth()
+    if (auth) {
+      const decodedToken = await auth.verifyIdToken(token, true)
+      return {
+        vendorId: decodedToken.uid,
+        auth: decodedToken,
+        error: null,
+      }
+    }
+  } catch (error) {
+    console.warn('[auth] Firebase token verification failed:', error?.code ?? error?.message)
+  }
+
+  return {
+    vendorId: null,
+    auth: null,
+    error: 'Invalid or expired token.',
+    status: 401,
+  }
+}

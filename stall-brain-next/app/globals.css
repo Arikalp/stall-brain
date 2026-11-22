@@ -1,0 +1,179 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  background-color: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  --color-bg-base: #0d0d0d;
+  --color-bg-card: #1c1a17;
+  --color-bg-card-hover: #252219;
+  --color-bg-input: #141210;
+  --color-border: #2e2a22;
+  --color-border-focus: #f59e0b;
+  --color-primary: #f59e0b;
+  --color-primary-dark: #d97706;
+  --color-primary-glow: rgba(245, 158, 11, 0.15);
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-danger: #f87171;
+  --color-text-primary: #f5f0e8;
+  --color-text-secondary: #a89880;
+  --color-text-muted: #6b5f52;
+  --nav-offset: 96px;
+}
+
+html {
+  scroll-padding-top: var(--nav-offset);
+}
+
+section[id] {
+  scroll-margin-top: var(--nav-offset);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100%;
+  background-color: var(--color-bg-base);
+  overflow-x: hidden;
+}
+
+#root {
+  min-height: 100svh;
+}
+
+::selection {
+  background: rgba(245, 158, 11, 0.35);
+  color: #0d0d0d;
+}
+
+@keyframes float {
+  0% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes glow {
+  0% {
+    box-shadow: 0 0 0 rgba(245, 158, 11, 0);
+  }
+  50% {
+    box-shadow: 0 0 24px rgba(245, 158, 11, 0.25);
+  }
+  100% {
+    box-shadow: 0 0 0 rgba(245, 158, 11, 0);
+  }
+}
+
+.float-slow {
+  animation: float 8s ease-in-out infinite;
+}
+
+.glow-amber {
+  animation: glow 4s ease-in-out infinite;
+}
+
+.app-background,
+.app-grid {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.app-background {
+  background:
+    radial-gradient(900px circle at 8% 12%, rgba(245, 158, 11, 0.18), transparent 55%),
+    radial-gradient(760px circle at 88% 16%, rgba(74, 222, 128, 0.14), transparent 60%),
+    radial-gradient(680px circle at 48% 88%, rgba(245, 158, 11, 0.12), transparent 60%);
+  z-index: 0;
+}
+
+.app-grid {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 0);
+  background-size: 32px 32px;
+  opacity: 0.25;
+  z-index: 1;
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-12%);
+    opacity: 0.2;
+  }
+  50% {
+    transform: translateX(12%);
+    opacity: 0.3;
+  }
+  100% {
+    transform: translateX(-12%);
+    opacity: 0.2;
+  }
+}
+
+.home-shimmer {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 30%, #1a1400 0%, transparent 55%);
+  mix-blend-mode: screen;
+  animation: shimmer 14s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.home-orb {
+  position: absolute;
+  width: 240px;
+  height: 240px;
+  border-radius: 999px;
+  filter: blur(40px);
+  opacity: 0.35;
+  animation: float 12s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.home-orb-amber {
+  top: 12%;
+  left: 8%;
+  background: rgba(245, 158, 11, 0.35);
+}
+
+.home-orb-emerald {
+  bottom: 15%;
+  right: 12%;
+  background: rgba(74, 222, 128, 0.25);
+  animation-delay: 2s;
+}
+
+.home-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  box-shadow: 0 0 25px rgba(245, 158, 11, 0.2);
+  transition: all 0.3s ease;
+}
+
+.home-logo:hover {
+  border-color: rgba(245, 158, 11, 0.5);
+  box-shadow: 0 0 35px rgba(245, 158, 11, 0.35);
+  transform: scale(1.05);
+}
