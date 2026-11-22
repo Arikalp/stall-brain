@@ -52,8 +52,12 @@ export default function VoiceInventoryInput({ knownItems = [], onConfirm }) {
       } else {
         setParsedItems(items)
       }
-    } catch {
-      setError('Could not parse voice input right now. Check connection and try again.')
+    } catch (err) {
+      if (err?.code === 'AUTH_REQUIRED') {
+        setError('Please sign in or continue as demo to use voice inventory.')
+      } else {
+        setError('Could not parse voice input. Try saying e.g. "5 kilo aloo" or "2 packet bread".')
+      }
     } finally {
       setParsing(false)
     }
