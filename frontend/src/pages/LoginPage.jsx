@@ -91,15 +91,24 @@ export default function LoginPage() {
             <span>Continue with Google</span>
           </button>
 
-          {/* Secondary: demo fallback */}
+          {/* Divider */}
+          <div className="relative my-5 flex items-center">
+            <span className="h-px flex-1 bg-white/10" />
+            <span className="px-3 text-[11px] uppercase tracking-widest text-white/30">or</span>
+            <span className="h-px flex-1 bg-white/10" />
+          </div>
+
+          {/* Demo CTA */}
           <button
-            className="mt-4 block w-full text-center text-xs font-medium text-white/50 transition hover:text-amber-200 disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-2.5 rounded-2xl border border-amber-300/40 bg-amber-300/10 px-6 py-3.5 text-sm font-semibold text-amber-200 transition-all duration-300 hover:bg-amber-300/20 hover:border-amber-300/60 hover:shadow-[0_8px_24px_rgba(251,191,36,0.15)] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
             disabled={demoBusy}
             onClick={handleDemo}
             type="button"
           >
-            {demoBusy ? "Starting demo session..." : "Or explore with a demo account"}
+            <span>⚡</span>
+            <span>{demoBusy ? "Starting demo..." : "Try Demo — Hazratganj Chaat Stall"}</span>
           </button>
+          <p className="mt-2 text-center text-[11px] text-white/30">No sign-in required · Preloaded stall data</p>
 
           <div className="mt-8 flex items-center justify-center gap-2 border-t border-white/10 pt-6 text-xs text-white/40">
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
