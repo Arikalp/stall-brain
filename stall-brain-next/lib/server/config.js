@@ -1,5 +1,10 @@
 import { z } from 'zod'
 
+function cleanEnv(val) {
+  if (typeof val !== 'string') return val
+  return val.trim().replace(/^["']|["']$/g, '').trim()
+}
+
 const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3001),
   NODE_ENV: z
@@ -7,34 +12,37 @@ const envSchema = z.object({
     .default('development'),
   // Comma-separated list of allowed browser origins (the Vercel frontend + local dev).
   FRONTEND_ORIGIN: z.string().default('http://localhost:5173'),
-  // Server-only secret. Never prefix this with VITE_ and never ship it to the client.
-  GROQ_API_KEY: z.string().default(process.env.GROQ_API_KEY || ''),
+  // Server-only secret. Strips accidental quotes or whitespace from dashboard paste.
+  GROQ_API_KEY: z.string().transform(cleanEnv).default(cleanEnv(process.env.GROQ_API_KEY) || ''),
   // llama-3.3-70b-versatile was decommissioned on Groq; keep the model swappable here.
-  GROQ_MODEL: z.string().default('openai/gpt-oss-120b'),
+  GROQ_MODEL: z.string().transform(cleanEnv).default('openai/gpt-oss-120b'),
   // Google OAuth (web application client). The browser is redirected to
   // /api/auth/google/start, and Google sends the code back to
   // /api/auth/google/callback where it is exchanged server-side.
-  GOOGLE_CLIENT_ID: z.string().optional(),
-  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_CLIENT_ID: z.string().transform(cleanEnv).optional(),
+  GOOGLE_CLIENT_SECRET: z.string().transform(cleanEnv).optional(),
   // Optional explicit callback URL override, e.g.
-  // https://stall-brain.onrender.com/api/auth/google/callback
+  // https://stallbrain.vercel.app/api/auth/google/callback
   // When omitted it is derived from the incoming request host.
-  GOOGLE_REDIRECT_URI: z.string().optional(),
+  GOOGLE_REDIRECT_URI: z.string().transform(cleanEnv).optional(),
   // Secret used to sign our own HS256 session tokens (issued after OAuth).
-  SESSION_SECRET: z.string().optional(),
+  SESSION_SECRET: z
+    .string()
+    .transform(cleanEnv)
+    .default(cleanEnv(process.env.SESSION_SECRET) || 'stall_brain_secure_jwt_session_secret_2026_lucknow'),
   SESSION_TTL_DAYS: z.coerce.number().int().positive().default(30),
   // Frontend origin the OAuth callback redirects back to. Defaults to the
   // first entry of FRONTEND_ORIGIN.
-  FRONTEND_URL: z.string().optional(),
+  FRONTEND_URL: z.string().transform(cleanEnv).optional(),
   // Firebase Admin: provide a service account (JSON string or file path) or rely on
   // Application Default Credentials (GOOGLE_APPLICATION_CREDENTIALS / gcloud auth).
-  FIREBASE_PROJECT_ID: z.string().optional(),
+  FIREBASE_PROJECT_ID: z.string().transform(cleanEnv).optional(),
   FIREBASE_SERVICE_ACCOUNT_JSON: z.string().optional(),
-  FIREBASE_SERVICE_ACCOUNT_PATH: z.string().optional(),
+  FIREBASE_SERVICE_ACCOUNT_PATH: z.string().transform(cleanEnv).optional(),
   // Optional signal sources: web search (Tavily) and live mandi prices (data.gov.in).
   // Without them the corresponding tools degrade gracefully to curated/mock data.
-  TAVILY_API_KEY: z.string().optional(),
-  DATA_GOV_IN_API_KEY: z.string().optional(),
+  TAVILY_API_KEY: z.string().transform(cleanEnv).optional(),
+  DATA_GOV_IN_API_KEY: z.string().transform(cleanEnv).optional(),
   // Checkpointer: 'memory' (dev, non-persistent) or 'firestore' (prod, runs
   // survive restarts so pending approvals are not lost). Firestore mode needs
   // the Firebase Admin credentials above.

@@ -63,46 +63,81 @@ const NUMBER_WORDS = {
   सौ: 100,
 }
 
+function normalizeDevanagariDigits(str) {
+  return String(str || '').replace(/[०-९]/g, (d) => '०१२३४५६७८९'.indexOf(d))
+}
+
 export function fallbackParseVoiceTranscript(transcript, knownItems = []) {
-  const segments = String(transcript ?? '')
+  const normalizedText = normalizeDevanagariDigits(transcript)
+  const segments = String(normalizedText ?? '')
     .split(/[,]|(?:\s+(?:aur|and|और)\s+)/i)
     .map((s) => s.trim())
     .filter(Boolean)
 
   const unitPattern =
-    '(kg|kilo|kilos|kilogram|kilograms|किलो|g|gm|gms|gram|grams|ग्राम|litre|litres|liter|liters|l|लीटर|piece|pieces|pcs|pc|nag|पीस|नग|packet|packets|pkt|pkts|पैकेट|dozen|dozens|darjan|दर्जन)'
-  const stopWords = new Set(['hai', 'hain', 'है', 'हैं', 'mere', 'paas', 'pass', 'stock', 'mein', 'me', 'ka', 'ki', 'ke', 'baki', 'bacha', 'padi', 'pada'])
+    '(kg|kilo|kilos|kilogram|kilograms|किलो|किग्रा|कि\\.ग्रा|g|gm|gms|gram|grams|ग्राम|litre|litres|liter|liters|l|लीटर|piece|pieces|pcs|pc|nag|पीस|नग|packet|packets|pkt|pkts|पैकेट|dozen|dozens|darjan|दर्जन)'
+  const stopWords = new Set([
+    'hai',
+    'hain',
+    'है',
+    'हैं',
+    'mere',
+    'paas',
+    'pass',
+    'stock',
+    'mein',
+    'me',
+    'ka',
+    'ki',
+    'ke',
+    'baki',
+    'bacha',
+    'padi',
+    'pada',
+  ])
 
   const rawItems = []
   for (const seg of segments) {
     const tokens = seg.split(/\s+/).filter(Boolean)
     let quantity = null
     let unit = 'kg'
-    const itemTokens = []
+    let itemTokens = []
+
+    const commitItem = () => {
+      const itemName = itemTokens.join(' ').trim()
+      if (itemName && quantity != null) {
+        rawItems.push({ item: itemName, quantity, unit })
+      }
+      quantity = null
+      unit = 'kg'
+      itemTokens = []
+    }
 
     for (const token of tokens) {
       const clean = token.toLowerCase().replace(/[।.,!?]/g, '')
       if (!clean || stopWords.has(clean)) continue
 
-      if (quantity === null && /^\d+(?:\.\d+)?$/.test(clean)) {
-        quantity = Number.parseFloat(clean)
+      const isDigit = /^\d+(?:\.\d+)?$/.test(clean)
+      const numVal = isDigit ? Number.parseFloat(clean) : NUMBER_WORDS[clean]
+
+      if (numVal != null) {
+        // If we already have a quantity and accumulated item tokens, the next number starts a new item.
+        if (quantity !== null && itemTokens.length > 0) {
+          commitItem()
+        }
+        quantity = numVal
         continue
       }
-      if (quantity === null && NUMBER_WORDS[clean] != null) {
-        quantity = NUMBER_WORDS[clean]
-        continue
-      }
+
       if (new RegExp(`^${unitPattern}$`, 'i').test(clean)) {
         unit = clean
         continue
       }
+
       itemTokens.push(token.replace(/[।.,!?]/g, ''))
     }
 
-    const itemName = itemTokens.join(' ').trim()
-    if (itemName && quantity != null) {
-      rawItems.push({ item: itemName, quantity, unit })
-    }
+    commitItem()
   }
 
   return VoiceInventoryParseSchema.parse(
