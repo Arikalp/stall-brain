@@ -279,7 +279,7 @@ export async function parseVoiceTranscript({
   llm = null,
   skipLlm = false,
 }) {
-  if (!skipLlm) {
+  if (!skipLlm && config.groqApiKey) {
     try {
       const model = llm ?? getLlm()
       const structuredLlm = model.withStructuredOutput(VoiceInventoryParseSchema)
@@ -287,7 +287,7 @@ export async function parseVoiceTranscript({
         ? `KNOWN ITEMS FOR THIS STALL: ${knownItems.join(', ')}`
         : 'KNOWN ITEMS: none yet'
 
-      const raw = await structuredLlm.invoke([
+      const llmPromise = structuredLlm.invoke([
         { role: 'system', content: SYSTEM_PROMPT },
         {
           role: 'user',
@@ -295,12 +295,18 @@ export async function parseVoiceTranscript({
         },
       ])
 
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('LLM_TIMEOUT')), 4000),
+      )
+
+      const raw = await Promise.race([llmPromise, timeoutPromise])
+
       const parsed = VoiceInventoryParseSchema.parse(
         normalizeVoiceInventory(raw, knownItems),
       )
       return { items: parsed.items, method: 'llm' }
     } catch (error) {
-      console.warn('[voice] LLM parse failed, using fallback parser:', error?.message)
+      console.warn('[voice] LLM parse skipped/failed, using fast fallback parser:', error?.message)
     }
   }
 

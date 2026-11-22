@@ -16,8 +16,13 @@ let cachedDb
 
 export function getDb() {
   if (!cachedDb) {
-    initFirebaseAdmin()
-    cachedDb = getFirestore()
+    const app = initFirebaseAdmin()
+    if (!app) return null
+    try {
+      cachedDb = getFirestore(app)
+    } catch {
+      return null
+    }
   }
   return cachedDb
 }

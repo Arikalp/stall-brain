@@ -36,6 +36,11 @@ export function initFirebaseAdmin() {
   if (adminApp) return adminApp
 
   const serviceAccount = loadServiceAccount()
+  if (!serviceAccount && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    // Avoid hanging on GCP metadata server (http://169.254.169.254) when running on Vercel/AWS
+    return null
+  }
+
   const options = {}
 
   if (serviceAccount) {
@@ -46,21 +51,22 @@ export function initFirebaseAdmin() {
     }
     options.credential = admin.credential.cert(serviceAccount)
     options.projectId = config.firebaseProjectId || serviceAccount.project_id
-  } else {
+  } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
     options.credential = admin.credential.applicationDefault()
     if (config.firebaseProjectId) {
       options.projectId = config.firebaseProjectId
     }
   }
 
-  if (!options.projectId) {
-    throw new Error(
-      '[auth] Missing Firebase project id. Set FIREBASE_PROJECT_ID (or provide a service account) in backend/.env.',
-    )
-  }
+  if (!options.projectId) return null
 
-  adminApp = admin.initializeApp(options)
-  return adminApp
+  try {
+    adminApp = admin.initializeApp(options)
+    return adminApp
+  } catch (err) {
+    console.warn('[auth] Firebase admin initialize failed:', err?.message)
+    return null
+  }
 }
 
 export function getFirebaseAuth() {

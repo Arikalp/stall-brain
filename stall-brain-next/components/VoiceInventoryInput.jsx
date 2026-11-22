@@ -57,6 +57,133 @@ const QUICK_CHIPS = [
   { label: '🥟 10 समोसा', text: '10 समोसा' },
 ]
 
+function localClientParseHindi(text) {
+  const norm = String(text || '').replace(/[०-९]/g, (d) => '०१२३४५६७८९'.indexOf(d))
+  const numWords = {
+    आधा: 0.5,
+    aadha: 0.5,
+    पाव: 0.25,
+    सवा: 1.25,
+    डेढ़: 1.5,
+    dedh: 1.5,
+    ढाई: 2.5,
+    dhai: 2.5,
+    एक: 1,
+    ek: 1,
+    दो: 2,
+    do: 2,
+    तीन: 3,
+    teen: 3,
+    चार: 4,
+    char: 4,
+    पाँच: 5,
+    पांच: 5,
+    paanch: 5,
+    दस: 10,
+    das: 10,
+    बीस: 20,
+    bees: 20,
+  }
+  const aliases = {
+    आलू: 'aloo',
+    aloo: 'aloo',
+    बैंगन: 'baingan',
+    बैगन: 'baingan',
+    baingan: 'baingan',
+    टमाटर: 'tamatar',
+    tamatar: 'tamatar',
+    प्याज: 'pyaz',
+    प्याज़: 'pyaz',
+    pyaz: 'pyaz',
+    दूध: 'milk',
+    milk: 'milk',
+    ब्रेड: 'bread',
+    bread: 'bread',
+    पाव: 'pav',
+    pav: 'pav',
+    पनीर: 'paneer',
+    paneer: 'paneer',
+    समोसा: 'samosa',
+    samosa: 'samosa',
+    मटर: 'matar',
+    गोभी: 'gobhi',
+    मिर्च: 'mirch',
+    तेल: 'oil',
+    चीनी: 'sugar',
+  }
+  const unitMap = {
+    किलो: 'kg',
+    kg: 'kg',
+    पैकेट: 'packets',
+    packet: 'packets',
+    packets: 'packets',
+    थैली: 'packets',
+    लीटर: 'litres',
+    litre: 'litres',
+    litres: 'litres',
+    ठो: 'pieces',
+    गो: 'pieces',
+    नग: 'pieces',
+    पीस: 'pieces',
+    दर्जन: 'dozen',
+  }
+  const stopWords = new Set([
+    'है',
+    'हैं',
+    'अरे',
+    'भैया',
+    'लिखो',
+    'सुनो',
+    'बाबू',
+    'आज',
+    'बचा',
+    'पड़ा',
+    'और',
+    'का',
+    'की',
+    'के',
+    'में',
+    'पास',
+    'मेरे',
+  ])
+
+  const tokens = norm.split(/\s+/).filter(Boolean)
+  const items = []
+  let qty = null
+  let unit = 'kg'
+  let itemTokens = []
+
+  const commit = () => {
+    const rawName = itemTokens.join(' ').trim()
+    if (rawName && qty != null) {
+      const mappedItem = aliases[rawName] || rawName
+      items.push({ item: mappedItem, quantity: qty, unit })
+    }
+    qty = null
+    unit = 'kg'
+    itemTokens = []
+  }
+
+  for (const t of tokens) {
+    const clean = t.toLowerCase().replace(/[।.,!?]/g, '')
+    if (!clean || stopWords.has(clean)) continue
+    const isNum = /^\d+(?:\.\d+)?$/.test(clean)
+    const num = isNum ? Number.parseFloat(clean) : numWords[clean]
+    if (num != null) {
+      if (qty !== null && itemTokens.length > 0) commit()
+      qty = num
+      continue
+    }
+    if (unitMap[clean]) {
+      unit = unitMap[clean]
+      continue
+    }
+    itemTokens.push(clean)
+  }
+  commit()
+  return items
+}
+
 export default function VoiceInventoryInput({ knownItems = [], onConfirm }) {
   const recognitionRef = useRef(null)
   const mediaRecorderRef = useRef(null)
@@ -117,8 +244,12 @@ export default function VoiceInventoryInput({ knownItems = [], onConfirm }) {
     setParsing(true)
     setError('')
 
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000)
+
     try {
-      const result = await parseVoiceInventory(input, knownItems)
+      const result = await parseVoiceInventory(input, knownItems, { signal: controller.signal })
+      clearTimeout(timeoutId)
       const items = Array.isArray(result?.items) ? result.items : []
 
       if (result?.transcript && isBlob) {
@@ -126,6 +257,21 @@ export default function VoiceInventoryInput({ knownItems = [], onConfirm }) {
       }
 
       if (!items.length) {
+        if (textVal) {
+          const localItems = localClientParseHindi(textVal)
+          if (localItems.length) {
+            setParsedItems(localItems)
+            const summary = localItems
+              .map((i) => {
+                const visual = ITEM_VISUALS[i.item.toLowerCase()]
+                const hindiName = visual?.hindi || i.item
+                return `${i.quantity} ${i.unit} ${hindiName}`
+              })
+              .join(' और ')
+            speakHindi(`${summary} दर्ज हो गया।`)
+            return
+          }
+        }
         setError(
           'सामान और मात्रा समझ नहीं आई। कृपया दोबारा बोलें (जैसे "5 किलो आलू, 2 पैकेट ब्रेड")',
         )
@@ -142,7 +288,25 @@ export default function VoiceInventoryInput({ knownItems = [], onConfirm }) {
         speakHindi(`${summary} दर्ज हो गया। कृपया नीचे जांच कर पुष्टि करें।`)
       }
     } catch (err) {
+      clearTimeout(timeoutId)
       console.warn('[voiceInput] parse error:', err?.code, err?.message)
+
+      if (textVal) {
+        const localItems = localClientParseHindi(textVal)
+        if (localItems.length) {
+          setParsedItems(localItems)
+          const summary = localItems
+            .map((i) => {
+              const visual = ITEM_VISUALS[i.item.toLowerCase()]
+              const hindiName = visual?.hindi || i.item
+              return `${i.quantity} ${i.unit} ${hindiName}`
+            })
+            .join(' और ')
+          speakHindi(`${summary} दर्ज हो गया।`)
+          return
+        }
+      }
+
       if (err?.code === 'AUTH_REQUIRED') {
         try {
           const { startDemoAuth } = await import('../utils/auth')

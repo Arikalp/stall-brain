@@ -1,10 +1,10 @@
 import { verifySessionToken } from './lib/sessionToken.js'
 import { config } from './config.js'
-import { getFirebaseAuth } from './middleware/auth.js'
 
 /**
  * Extracts and verifies the Bearer token from a Next.js Request.
  * Returns { vendorId, auth, error: null } or { vendorId: null, auth: null, error: message, status: 401 }.
+ * Pure HS256 + demo verification with zero external network dependencies (0ms latency).
  */
 export async function requireAuth(request) {
   const header = request.headers.get('authorization') ?? ''
@@ -27,6 +27,7 @@ export async function requireAuth(request) {
         sub: 'demo-vendor-hazratganj',
         email: 'demo@bazaarbrain.in',
         name: 'Ramesh Kumar (Demo Vendor)',
+        picture: '/logo-icon.png',
       },
       error: null,
     }
@@ -48,21 +49,6 @@ export async function requireAuth(request) {
         error: null,
       }
     }
-  }
-
-  // 3. Fallback: Firebase ID token if configured
-  try {
-    const auth = getFirebaseAuth()
-    if (auth) {
-      const decodedToken = await auth.verifyIdToken(token, true)
-      return {
-        vendorId: decodedToken.uid,
-        auth: decodedToken,
-        error: null,
-      }
-    }
-  } catch (error) {
-    console.warn('[auth] Firebase token verification failed:', error?.code ?? error?.message)
   }
 
   return {
