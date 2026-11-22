@@ -30,15 +30,20 @@ export function getAccessToken() {
 export async function apiRequest(path, { method = 'GET', body, signal } = {}) {
   const token = getAccessToken()
 
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
+  const headers = {
+    Authorization: `Bearer ${token}`,
+  }
+  if (!isFormData) {
+    headers['Content-Type'] = 'application/json'
+  }
+
   let response
   try {
     response = await fetch(`${API_BASE}${path}`, {
       method,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers,
+      body: body === undefined ? undefined : isFormData ? body : JSON.stringify(body),
       signal,
     })
   } catch {

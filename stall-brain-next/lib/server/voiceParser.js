@@ -1,28 +1,107 @@
+import { config } from './config.js'
 import { getLlm } from './llm.js'
 import {
   normalizeVoiceInventory,
   VoiceInventoryParseSchema,
 } from './schemas.js'
 
-const SYSTEM_PROMPT = `You extract street vendor inventory items from spoken Hindi, Hinglish, or English transcripts.
-Respond ONLY as JSON matching:
+const SYSTEM_PROMPT = `You are an expert AI assistant that understands Indian street vendors and small stall owners (ठेले वाले / पटरी दुकानदार).
+Vendors may be minimally educated and speak in informal, conversational, or dialect-heavy Hindi, Awadhi, Bhojpuri, or Hinglish.
+They often include filler phrases like:
+- "अरे भैया लिखो..." ("Bhaiya likho...")
+- "अरे सुनो..." ("Are suno...")
+- "आज दुकान में इतना माल बचा है..." ("Aaj dukan mein itna maal bacha hai...")
+- "इतना सामान है..." ("Itna saaman hai...")
+- "लिख लो भाई..." ("Likh lo bhai...")
+
+Your task is to automatically understand what inventory items and quantities they are describing, ignoring all conversational noise.
+
+Respond ONLY matching the JSON schema:
 {
   "items": [
     { "item": "aloo", "quantity": 10, "unit": "kg" }
   ]
 }
-Rules:
-- Allowed units ONLY: "kg", "g", "litres", "pieces", "packets", "dozen".
-- Convert Hindi number words ("ek"=1, "do"=2, "teen"=3, "char"=4, "paanch"=5, "das"=10, "bees"=20, "aadha"=0.5, "dedh"=1.5, "dhai"=2.5, etc.) into numbers.
-- If the spoken item matches one of the vendor's KNOWN ITEMS (including Hindi equivalents like "आलू"->"aloo", "दूध"->"milk", "चीनी"->"sugar", "चाय पत्ती"->"tea leaves", "भुट्टा"->"corn cobs"), use the exact known item name.
-- If no clear item+quantity is found, return {"items": []}.`
+
+Strict Rules:
+1. Allowed units ONLY: "kg", "g", "litres", "pieces", "packets", "dozen".
+2. Convert colloquial and dialect terms:
+   - Fractional numbers:
+     - "आधा" / "aadha" = 0.5
+     - "सवा" / "sawa" = 1.25
+     - "डेढ़" / "dedh" = 1.5
+     - "पौने दो" = 1.75
+     - "ढाई" / "dhai" = 2.5
+     - "पौने तीन" = 2.75
+     - "साढ़े तीन" = 3.5
+     - "साढ़े चार" = 4.5
+   - Count words & dialect classifiers:
+     - "ठो" (e.g. "दस ठो समोसा", "चार ठो पाव") -> unit: "pieces"
+     - "गो" (e.g. "पाँच गो अंडा") -> unit: "pieces"
+     - "नग" (e.g. "बारह नग केला") -> unit: "pieces"
+     - "थैली" (e.g. "तीन थैली दूध", "दो थैली तेल") -> unit: "packets" or "litres"
+     - "कट्टा" / "बोरी" (e.g. "एक कट्टा प्याज") -> unit: "packets"
+     - "डिब्बा" (e.g. "दो डिब्बा बिस्कुट") -> unit: "packets"
+     - "गड्डी" / "गुच्छा" (e.g. "दो गड्डी धनिया") -> unit: "pieces"
+3. Clean standard item names:
+   - Output standard item names (e.g. "aloo", "baingan", "tamatar", "pyaz", "milk", "bread", "paneer", "samosa", "oil", "chai patti", "sugar", "butter").
+   - If the vendor's KNOWN ITEMS match, prefer the exact matching known item name.
+4. If no clear items or quantities are found in the speech, return {"items": []}.`
+
+export async function transcribeAudioBuffer({ buffer, mimeType = 'audio/webm' }) {
+  const apiKey = config.groqApiKey
+  if (!apiKey) {
+    throw new Error('GROQ_API_KEY is not configured for Whisper audio transcription.')
+  }
+
+  const extension = mimeType.includes('wav')
+    ? 'wav'
+    : mimeType.includes('mp4') || mimeType.includes('m4a')
+      ? 'm4a'
+      : mimeType.includes('ogg')
+        ? 'ogg'
+        : 'webm'
+
+  const formData = new FormData()
+  const blob = new Blob([buffer], { type: mimeType })
+  formData.append('file', blob, `audio.${extension}`)
+  formData.append('model', 'whisper-large-v3-turbo')
+  formData.append('language', 'hi')
+  formData.append(
+    'prompt',
+    'आलू, प्याज, टमाटर, बैंगन, गोभी, मटर, दूध, पनीर, ब्रेड, पाव, समोसा, चाट, ठेला, किलो, पैकेट, दर्जन, लीटर, थैली, ग्राम',
+  )
+
+  const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: formData,
+  })
+
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => '')
+    console.error('[whisper] Groq transcription error:', res.status, errorText)
+    throw new Error(`Groq Whisper transcription failed: ${res.statusText}`)
+  }
+
+  const json = await res.json()
+  return (json.text || '').trim()
+}
 
 const NUMBER_WORDS = {
+  paav: 0.25,
+  पाव: 0.25,
   aadha: 0.5,
   adha: 0.5,
   आधा: 0.5,
+  paune: 0.75,
+  पौने: 0.75,
   ek: 1,
   एक: 1,
+  sawa: 1.25,
+  सवा: 1.25,
   dedh: 1.5,
   डेढ़: 1.5,
   do: 2,
@@ -75,25 +154,74 @@ export function fallbackParseVoiceTranscript(transcript, knownItems = []) {
     .filter(Boolean)
 
   const unitPattern =
-    '(kg|kilo|kilos|kilogram|kilograms|किलो|किग्रा|कि\\.ग्रा|g|gm|gms|gram|grams|ग्राम|litre|litres|liter|liters|l|लीटर|piece|pieces|pcs|pc|nag|पीस|नग|packet|packets|pkt|pkts|पैकेट|dozen|dozens|darjan|दर्जन)'
+    '(kg|kilo|kilos|kilogram|kilograms|किलो|किग्रा|कि\\.ग्रा|g|gm|gms|gram|grams|ग्राम|litre|litres|liter|liters|l|लीटर|piece|pieces|pcs|pc|nag|नग|नाग|ठो|गो|गड्डी|गुच्छा|packet|packets|pkt|pkts|पैकेट|थैली|बोरी|कट्टा|डिब्बा|dozen|dozens|darjan|दर्जन)'
   const stopWords = new Set([
+    'are',
+    'अरे',
+    'bhaiya',
+    'भैया',
+    'bhai',
+    'भाई',
+    'suno',
+    'सुनो',
+    'likho',
+    'लिखो',
+    'likh',
+    'लिख',
+    'lo',
+    'लो',
+    'babu',
+    'बाबू',
+    'aaj',
+    'आज',
+    'dukan',
+    'दुकान',
+    'dhar',
+    'धर',
+    'rakh',
+    'रख',
+    'maal',
+    'माल',
+    'saaman',
+    'सामान',
+    'itna',
+    'इतना',
+    'thoda',
+    'थोड़ा',
+    'bhi',
+    'भी',
+    'baki',
+    'बाकी',
+    'bacha',
+    'बचा',
+    'bache',
+    'बचे',
+    'padi',
+    'पड़ी',
+    'pada',
+    'पड़ा',
+    'pade',
+    'पड़े',
     'hai',
-    'hain',
     'है',
+    'hain',
     'हैं',
     'mere',
+    'मेरे',
     'paas',
+    'पास',
     'pass',
     'stock',
+    'स्टॉक',
     'mein',
+    'में',
     'me',
     'ka',
+    'का',
     'ki',
+    'की',
     'ke',
-    'baki',
-    'bacha',
-    'padi',
-    'pada',
+    'के',
   ])
 
   const rawItems = []
